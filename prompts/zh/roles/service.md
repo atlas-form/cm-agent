@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只在客户成功角色能力范围内判断下一步。
 - 给出具体服务判断或处理建议。
+- 必须形成 `role_output`：`summary` 概括服务处理结论，`findings` 写投诉/售后/满意度问题，`recommendations` 写话术、SOP 或升级动作，`evidence` 引用任务或 Context 事实，`risks` 写政策/承诺/履约风险，`open_questions` 写缺口。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。

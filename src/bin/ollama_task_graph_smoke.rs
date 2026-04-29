@@ -60,9 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn build_ollama_agent_manager(
-    llm: Arc<ChatCompletionsLlm>,
-) -> cm_agent::api::Result<AgentManager> {
+fn build_ollama_agent_manager(llm: Arc<ChatCompletionsLlm>) -> cm_agent::api::Result<AgentManager> {
     let commander_llm = Arc::clone(&llm);
     let commander = Arc::new(move || {
         Ok(Box::new(CognitionEngine::new(
@@ -109,12 +107,17 @@ impl Cognition for OllamaRoleWorkerCognition {
 你必须只返回合法 JSON，不要 Markdown，不要代码块：
 {{
   "decision": {{"kind": "NoAction"}},
-  "role_output": "本角色提交给 commander 的简洁中文产物",
-  "evidence": ["你实际使用了哪些上游事实"],
-  "open_questions": []
+  "role_output": {{
+    "summary": "本角色一句话结论",
+    "findings": ["本角色关键发现"],
+    "recommendations": ["本角色建议或动作"],
+    "evidence": ["你实际使用了哪些上游事实"],
+    "risks": ["风险、边界或失败条件"],
+    "open_questions": []
+  }}
 }}
 
-除非确实无法继续，否则 open_questions 必须为空数组。
+除非确实无法继续，否则 role_output.open_questions 必须为空数组。
 "#,
             self.role.id.0, self.role.name, self.role.runtime_role
         );
@@ -131,9 +134,14 @@ impl Cognition for OllamaRoleWorkerCognition {
             Err(err) => {
                 return CognitionResult::Success(json!({
                     "decision": { "kind": "NoAction" },
-                    "role_output": format!("LLM 调用失败：{err}"),
-                    "evidence": [],
-                    "open_questions": [format!("LLM 调用失败：{err}")]
+                    "role_output": {
+                        "summary": format!("LLM 调用失败：{err}"),
+                        "findings": [],
+                        "recommendations": [],
+                        "evidence": [],
+                        "risks": [format!("LLM 调用失败：{err}")],
+                        "open_questions": [format!("LLM 调用失败：{err}")]
+                    }
                 }));
             }
         };
@@ -173,7 +181,8 @@ fn render_worker_input(input: &CognitionInput) -> String {
     };
 
     format!(
-        "Intent:\n- id: {}\n- kind: {:?}\n- description: {}\n\nContext metadata:\n{}\n\nContext facts:\n{}",
+        "Intent:\n- id: {}\n- kind: {:?}\n- description: {}\n\nContext metadata:\n{}\n\nContext \
+         facts:\n{}",
         input.intent.id, input.intent.kind, input.intent.description, metadata, facts
     )
 }
@@ -181,13 +190,20 @@ fn render_worker_input(input: &CognitionInput) -> String {
 fn parse_or_wrap_role_output(raw: &str) -> Value {
     serde_json::from_str(raw)
         .ok()
-        .or_else(|| extract_json_object(raw).and_then(|json_text| serde_json::from_str(json_text).ok()))
+        .or_else(|| {
+            extract_json_object(raw).and_then(|json_text| serde_json::from_str(json_text).ok())
+        })
         .unwrap_or_else(|| {
             json!({
                 "decision": { "kind": "NoAction" },
-                "role_output": raw,
-                "evidence": [],
-                "open_questions": []
+                "role_output": {
+                    "summary": raw,
+                    "findings": [],
+                    "recommendations": [],
+                    "evidence": [],
+                    "risks": [],
+                    "open_questions": []
+                }
             })
         })
 }

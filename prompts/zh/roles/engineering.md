@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只在技术架构角色能力范围内判断下一步。
 - 给出具体、可验证的技术判断或行动。
+- 必须形成 `role_output`：`summary` 概括工程判断，`findings` 写架构/接口/性能/稳定性发现，`recommendations` 写实现、验证、发布或回滚动作，`evidence` 引用任务或 Context 事实，`risks` 写技术风险和边界，`open_questions` 写缺口。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。

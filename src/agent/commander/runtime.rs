@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::{info, warn};
 
 use super::{
-    CommanderPhase, CommanderState, CommanderTask, EvaluationOutcome, RoutedDecision, TaskGraphRuntime,
-    TaskMemory, decision_intent_from_json, plan_task_graph,
+    CommanderPhase, CommanderState, CommanderTask, EvaluationOutcome, RoutedDecision,
+    TaskGraphRuntime, TaskMemory, decision_intent_from_json, plan_task_graph,
 };
 use crate::{
     cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind},
@@ -402,18 +402,16 @@ impl Commander {
 
         let task_id = TaskId(current_task.id);
         let graph = plan_task_graph(&task_id, &current_task.description, role_route);
-        if graph
-            .nodes
-            .iter()
-            .any(|node| self.session_context.get_worker_tx(&node.worker_id).is_none())
-        {
+        if graph.nodes.iter().any(|node| {
+            self.session_context
+                .get_worker_tx(&node.worker_id)
+                .is_none()
+        }) {
             return false;
         }
 
-        self.memory.push_progress(format!(
-            "task graph planned: {} nodes",
-            graph.nodes.len()
-        ));
+        self.memory
+            .push_progress(format!("task graph planned: {} nodes", graph.nodes.len()));
         self.emit_event(SessionEvent::TaskGraphPlanned {
             session_id: self.session_id_from_context(&self.current_context),
             graph: graph.clone(),

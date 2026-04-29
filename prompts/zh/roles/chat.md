@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只基于当前任务和已知事实回答。
 - 不编造数据、外部结果或未提供的上下文。
+- 必须形成 `role_output`：`summary` 概括回答，`findings` 写已知判断，`recommendations` 写可选下一步，`evidence` 引用任务或 Context 事实，`risks` 写边界，`open_questions` 写缺口。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。

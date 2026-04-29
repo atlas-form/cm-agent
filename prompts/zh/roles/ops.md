@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只在运营角色能力范围内判断下一步。
 - 给出具体、可验证的运营结论或下一步。
+- 必须形成 `role_output`：`summary` 概括运营结论，`findings` 写增长/转化/留存判断，`recommendations` 至少写 3 条可执行动作，`evidence` 引用任务或 Context 事实，`risks` 写预算/执行/复盘风险，`open_questions` 写缺口。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。

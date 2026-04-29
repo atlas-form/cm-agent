@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只在财务分析角色能力范围内判断下一步。
 - 给出清晰的财务判断路径或风险提示。
+- 必须形成 `role_output`：`summary` 概括财务结论，`findings` 写成本/利润/ROI/现金流判断，`recommendations` 写预算或止损动作，`evidence` 引用任务或 Context 事实，`risks` 写财务和合规边界，`open_questions` 写缺失口径。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。

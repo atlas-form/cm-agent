@@ -236,9 +236,12 @@ impl Worker {
                         task_id: TaskId(task.id.clone()),
                         worker_id: WorkerId(self.id.0.clone()),
                         role: assignment.role.clone(),
-                        content: self.memory.state.get("last_cognition_output").map(|output| {
-                            parse_worker_role_output(output).content
-                        }).unwrap_or_default(),
+                        content: self
+                            .memory
+                            .state
+                            .get("last_cognition_output")
+                            .map(|output| parse_worker_role_output(output).content)
+                            .unwrap_or_default(),
                         role_output: self
                             .memory
                             .state
@@ -321,13 +324,7 @@ impl Worker {
         warn!(task_id = %task.id, reason = %reason, "worker reporting task failed");
     }
     fn build_cognition_context(&self, task: &Task) -> Context {
-        build_context(
-            self.id.clone(),
-            self.phase,
-            &self.memory,
-            &self.role,
-            task,
-        )
+        build_context(self.id.clone(), self.phase, &self.memory, &self.role, task)
     }
 }
 
@@ -350,16 +347,28 @@ fn build_context(
     }
 
     if let Some(assignment) = &task.assignment {
-        metadata.insert("assignment.graph_id".to_string(), assignment.graph_id.0.clone());
-        metadata.insert("assignment.node_id".to_string(), assignment.node_id.0.clone());
+        metadata.insert(
+            "assignment.graph_id".to_string(),
+            assignment.graph_id.0.clone(),
+        );
+        metadata.insert(
+            "assignment.node_id".to_string(),
+            assignment.node_id.0.clone(),
+        );
         metadata.insert("assignment.role".to_string(), assignment.role.clone());
-        metadata.insert("assignment.attempt".to_string(), assignment.attempt.to_string());
+        metadata.insert(
+            "assignment.attempt".to_string(),
+            assignment.attempt.to_string(),
+        );
         metadata.insert(
             "assignment.input_count".to_string(),
             assignment.inputs.len().to_string(),
         );
         if let Some(instruction) = &assignment.rework_instruction {
-            metadata.insert("assignment.rework_instruction".to_string(), instruction.clone());
+            metadata.insert(
+                "assignment.rework_instruction".to_string(),
+                instruction.clone(),
+            );
         }
     }
 
@@ -417,8 +426,16 @@ fn extract_worker_content(output: &str) -> String {
     value
         .pointer("/decision/action/parameters/answer")
         .and_then(|value| value.as_str())
-        .or_else(|| value.pointer("/role_output").and_then(|value| value.as_str()))
-        .or_else(|| value.pointer("/rationale/primary").and_then(|value| value.as_str()))
+        .or_else(|| {
+            value
+                .pointer("/role_output")
+                .and_then(|value| value.as_str())
+        })
+        .or_else(|| {
+            value
+                .pointer("/rationale/primary")
+                .and_then(|value| value.as_str())
+        })
         .map(ToString::to_string)
         .unwrap_or_else(|| trimmed.to_string())
 }
@@ -472,7 +489,9 @@ fn parse_worker_role_output(output: &str) -> ParsedWorkerRoleOutput {
     }
 }
 
-fn parse_role_work_output(value: &serde_json::Value) -> Option<crate::core::protocol::RoleWorkOutput> {
+fn parse_role_work_output(
+    value: &serde_json::Value,
+) -> Option<crate::core::protocol::RoleWorkOutput> {
     let source = value.get("role_output").unwrap_or(value);
     if let Some(text) = source.as_str() {
         let summary = text.trim().to_string();

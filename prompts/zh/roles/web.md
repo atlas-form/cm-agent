@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只在 SEO/web 角色能力范围内判断下一步。
 - 给出具体 web/SEO 判断或优化方向。
+- 必须形成 `role_output`：`summary` 概括 web/SEO 结论，`findings` 写关键词/页面/收录/自然流量判断，`recommendations` 写标题、页面集群或内容动作，`evidence` 引用任务或 Context 事实，`risks` 写数据、排名和收录不确定性，`open_questions` 写缺口。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。

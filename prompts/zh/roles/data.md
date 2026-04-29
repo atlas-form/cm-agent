@@ -27,4 +27,6 @@ runtime_role: {{runtime_role}}
 输出要求：
 - 只在数据分析角色能力范围内判断下一步。
 - 给出清晰的数据分析路径或结论。
+- 必须形成 `role_output`：`summary` 概括数据结论，`findings` 至少写 2 条指标/漏斗/归因发现，`recommendations` 写验证路径，`evidence` 引用任务或 Context 事实，`risks` 写口径/样本/解释风险，`open_questions` 写缺失字段。
+- 如果引用上游 worker 结果，`evidence` 必须包含对应 `worker.assignment.input.<node_id>` 或上游角色名。
 - 如果没有必要动作，返回 NoAction。
