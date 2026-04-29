@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::protocol::{SessionId, TaskId, WorkerId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionEvent {
     Started {
         session_id: SessionId,
