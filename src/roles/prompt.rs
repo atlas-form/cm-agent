@@ -10,28 +10,40 @@ pub struct RolePromptInput {
 pub struct RolePromptBuilder;
 
 impl RolePromptBuilder {
-    pub fn build_worker_prompt(input: &RolePromptInput) -> String {
-        let capabilities = join_or_none(&input.role.required_capabilities);
-        let optional_capabilities = join_or_none(&input.role.optional_capabilities);
-        let actions = input
-            .role
+    pub fn build_worker_system_prompt(role: &RoleProfile) -> String {
+        let capabilities = join_or_none(&role.required_capabilities);
+        let optional_capabilities = join_or_none(&role.optional_capabilities);
+        let actions = role
             .preferred_actions
             .iter()
             .map(|action| action.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        let facts = join_or_none(&input.facts);
 
         format!(
-            "你是{role_name}。\n角色ID：{runtime_role}\n核心能力：{capabilities}\n可辅助能力：\
-             {optional_capabilities}\n偏好动作：{actions}\n当前任务：{task}\n已知事实：{facts}\n\\
-             n要求：\n- 只在本角色能力范围内判断下一步。\n- 不编造用户没有提供的数据。\n- \
-             优先给出可执行、可验证的下一步。\n- 如果没有必要动作，返回 NoAction。",
-            role_name = input.role.name,
-            runtime_role = input.role.runtime_role,
+            "Role identity:\n- name: {role_name}\n- runtime_role: {runtime_role}\n- \
+             required_capabilities: {capabilities}\n- optional_capabilities: \
+             {optional_capabilities}\n- preferred_actions: {actions}\n\nRole constraints:\n- Stay \
+             within this role's capabilities.\n- Do not invent metrics, tools, files, commands, \
+             or external results.\n- Prefer concrete, verifiable next steps.\n- If this role has \
+             no useful next action, return NoAction.",
+            role_name = role.name,
+            runtime_role = role.runtime_role,
             capabilities = capabilities,
             optional_capabilities = optional_capabilities,
             actions = if actions.is_empty() { "none" } else { &actions },
+        )
+    }
+
+    pub fn build_worker_prompt(input: &RolePromptInput) -> String {
+        let role_system = Self::build_worker_system_prompt(&input.role);
+        let facts = join_or_none(&input.facts);
+
+        format!(
+            "{role_system}\n\n当前任务：{task}\n已知事实：{facts}\n\n要求：\n- \
+             只在本角色能力范围内判断下一步。\n- 不编造用户没有提供的数据。\n- \
+             优先给出可执行、可验证的下一步。\n- 如果没有必要动作，返回 NoAction。",
+            role_system = role_system,
             task = input.task,
             facts = facts,
         )
@@ -67,7 +79,23 @@ mod tests {
         });
 
         assert!(prompt.contains("数据分析师"));
-        assert!(prompt.contains("data"));
+        assert!(prompt.contains("runtime_role: data"));
         assert!(prompt.contains("分析转化率下降"));
+    }
+
+    #[test]
+    fn builds_system_prompt_without_task_specific_text() {
+        let role = RoleCatalog::builtin()
+            .roles()
+            .iter()
+            .find(|role| role.runtime_role == "creative")
+            .expect("creative role exists")
+            .clone();
+
+        let prompt = RolePromptBuilder::build_worker_system_prompt(&role);
+
+        assert!(prompt.contains("内容创意师"));
+        assert!(prompt.contains("runtime_role: creative"));
+        assert!(prompt.contains("preferred_actions"));
     }
 }

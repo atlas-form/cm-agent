@@ -33,6 +33,26 @@ impl<L: ?Sized> CognitionEngine<L, JsonTemplateDecoder> {
             decoder,
         })
     }
+
+    pub fn new_with_system_append(
+        llm: Arc<L>,
+        prompt_path: impl AsRef<Path>,
+        system_append: impl Into<String>,
+    ) -> crate::agent_error::Result<Self> {
+        let prompt = Prompt::load_from_repo(prompt_path)?;
+        let decoder = Arc::new(JsonTemplateDecoder::new(prompt.extract_json_schema()?));
+        let content = format!("{}\n\n{}", prompt.content, system_append.into());
+        let system_messages = vec![Message {
+            role: model_gateway_rs::model::role::Role::System,
+            content: content.into(),
+        }];
+
+        Ok(Self {
+            llm,
+            system_messages,
+            decoder,
+        })
+    }
 }
 
 impl<L: ?Sized, D: ?Sized> CognitionEngine<L, D> {
