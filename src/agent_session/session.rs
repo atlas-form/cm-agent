@@ -6,6 +6,7 @@ use crate::{
     agent_error::Result,
     cognition::Cognition,
     core::protocol::{AgentId, MessageContext, SessionEvent, SessionId, UserId, WorkspaceId},
+    roles::RoleCatalog,
 };
 
 pub type CognitionFactory =
@@ -14,6 +15,7 @@ pub type CognitionFactory =
 #[derive(Clone)]
 pub struct AgentSessionConfig {
     pub runtime: SessionRuntimeConfig,
+    pub roles: RoleCatalog,
     pub commander_cognition: CognitionFactory,
     pub worker_cognition: CognitionFactory,
     pub memory_store: Arc<dyn MemoryStore>,
@@ -75,7 +77,18 @@ impl AgentSession {
         event_tx: Option<tokio::sync::mpsc::Sender<crate::core::protocol::SessionEvent>>,
     ) -> Result<SessionResult> {
         let commander_cognition = (self.config.commander_cognition)()?;
-        let worker_cognition = (self.config.worker_cognition)()?;
+        let workers = self
+            .config
+            .roles
+            .roles()
+            .iter()
+            .map(|role| {
+                Ok(crate::agent_session::SessionRuntimeWorkerInput {
+                    role: role.clone(),
+                    cognition: (self.config.worker_cognition)()?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         let context = self.message_context();
 
         let mut runtime = SessionRuntime::start(SessionRuntimeInput {
@@ -83,7 +96,7 @@ impl AgentSession {
             context,
             task_description: input.into(),
             commander_cognition,
-            worker_cognition,
+            workers,
             config: self.config.runtime.clone(),
             event_tx,
         })?;

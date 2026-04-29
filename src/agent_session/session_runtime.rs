@@ -12,9 +12,10 @@ use crate::{
         messaging::MessageRx,
         protocol::{
             AgentId, Message, MessageContext, MessageId, Payload, SessionEvent, SessionId, TaskId,
-            TaskSpec, WorkerId, WorkerProfile,
+            TaskSpec,
         },
     },
+    roles::RoleProfile,
 };
 
 pub type SessionEventTx = tokio_mpsc::Sender<SessionEvent>;
@@ -23,7 +24,6 @@ pub type SessionEventRx = tokio_mpsc::Receiver<SessionEvent>;
 #[derive(Debug, Clone)]
 pub struct SessionRuntimeConfig {
     pub response_timeout: Duration,
-    pub worker_profiles: Vec<WorkerProfile>,
     pub event_buffer: usize,
 }
 
@@ -31,10 +31,14 @@ impl Default for SessionRuntimeConfig {
     fn default() -> Self {
         Self {
             response_timeout: Duration::from_secs(300),
-            worker_profiles: vec![default_worker_profile()],
             event_buffer: 1024,
         }
     }
+}
+
+pub struct SessionRuntimeWorkerInput {
+    pub role: RoleProfile,
+    pub cognition: Box<dyn Cognition + Send>,
 }
 
 pub struct SessionRuntimeInput {
@@ -42,7 +46,7 @@ pub struct SessionRuntimeInput {
     pub context: MessageContext,
     pub task_description: String,
     pub commander_cognition: Box<dyn Cognition + Send>,
-    pub worker_cognition: Box<dyn Cognition + Send>,
+    pub workers: Vec<SessionRuntimeWorkerInput>,
     pub config: SessionRuntimeConfig,
     pub event_tx: Option<SessionEventTx>,
 }
@@ -59,10 +63,10 @@ pub struct SessionRuntime {
     task_description: String,
     session_context: Arc<SessionContext>,
     commander_tx: crate::core::messaging::MessageTx,
-    worker_tx: crate::core::messaging::MessageTx,
+    worker_txs: Vec<crate::core::messaging::MessageTx>,
     response_rx: Option<MessageRx>,
     commander_loop: tokio::task::JoinHandle<()>,
-    worker_loop: tokio::task::JoinHandle<()>,
+    worker_loops: Vec<tokio::task::JoinHandle<()>>,
     response_timeout: Duration,
     event_tx: Option<SessionEventTx>,
 }
@@ -71,17 +75,41 @@ impl SessionRuntime {
     pub fn start(input: SessionRuntimeInput) -> Result<Self> {
         let session_context = Arc::new(SessionContext::new());
         let (commander_tx, commander_rx) = tokio_mpsc::unbounded_channel::<Message>();
-        let (worker_tx, worker_rx) = tokio_mpsc::unbounded_channel::<Message>();
         let (response_tx, response_rx) = tokio_mpsc::unbounded_channel::<Message>();
 
         session_context
             .directory()
             .register_commander_tx(commander_tx.clone());
-        for profile in &input.config.worker_profiles {
+
+        if input.workers.is_empty() {
+            return Err(
+                SettingsError::invalid("session runtime requires at least one worker").into(),
+            );
+        }
+
+        let mut worker_txs = Vec::new();
+        let mut worker_loops = Vec::new();
+        for worker_input in input.workers {
+            let profile = worker_input.role.to_worker_profile();
+            let (worker_tx, worker_rx) = tokio_mpsc::unbounded_channel::<Message>();
             session_context
                 .directory()
                 .register_worker_tx(profile.worker_id.clone(), worker_tx.clone());
             session_context.worker_catalog().register(profile.clone());
+
+            let worker = Worker::new(
+                worker_input.role,
+                worker_input.cognition,
+                worker_rx,
+                commander_tx.clone(),
+            );
+            let worker_loop = tokio::spawn(async move {
+                let mut worker = worker;
+                worker.run().await;
+            });
+
+            worker_txs.push(worker_tx);
+            worker_loops.push(worker_loop);
         }
 
         let commander = Commander::new(
@@ -93,20 +121,9 @@ impl SessionRuntime {
             session_context.clone(),
         );
 
-        let worker = Worker::new(
-            AgentId("worker-1".to_string()),
-            input.worker_cognition,
-            worker_rx,
-            commander_tx.clone(),
-        );
-
         let commander_loop = tokio::spawn(async move {
             let mut commander = commander;
             commander.run().await;
-        });
-        let worker_loop = tokio::spawn(async move {
-            let mut worker = worker;
-            worker.run().await;
         });
 
         Ok(Self {
@@ -115,10 +132,10 @@ impl SessionRuntime {
             task_description: input.task_description,
             session_context,
             commander_tx,
-            worker_tx,
+            worker_txs,
             response_rx: Some(response_rx),
             commander_loop,
-            worker_loop,
+            worker_loops,
             response_timeout: input.config.response_timeout,
             event_tx: input.event_tx,
         })
@@ -200,18 +217,22 @@ impl SessionRuntime {
                 target: None,
             },
         ));
-        let _ = self.worker_tx.send(Message::new(
-            MessageId(next_id("msg")),
-            AgentId("session-runtime".to_string()),
-            AgentId("worker-1".to_string()),
-            Payload::Text {
-                content: "control:shutdown".to_string(),
-            },
-        ));
+        for worker_tx in &self.worker_txs {
+            let _ = worker_tx.send(Message::new(
+                MessageId(next_id("msg")),
+                AgentId("session-runtime".to_string()),
+                AgentId("worker".to_string()),
+                Payload::Text {
+                    content: "control:shutdown".to_string(),
+                },
+            ));
+        }
 
         let _ = tokio::time::timeout(Duration::from_secs(2), async {
             let _ = self.commander_loop.await;
-            let _ = self.worker_loop.await;
+            for worker_loop in self.worker_loops {
+                let _ = worker_loop.await;
+            }
         })
         .await;
     }
@@ -224,25 +245,6 @@ impl SessionRuntime {
         if let Some(event_tx) = &self.event_tx {
             let _ = event_tx.send(event).await;
         }
-    }
-}
-
-fn default_worker_profile() -> WorkerProfile {
-    WorkerProfile {
-        worker_id: WorkerId("worker-1".to_string()),
-        agent_id: "worker-1".to_string(),
-        name: "General Worker".to_string(),
-        description: "通用执行 worker，适合处理常规单步任务和基础动作执行。".to_string(),
-        capabilities: vec![
-            "general_execution".to_string(),
-            "single_step_actions".to_string(),
-            "basic_task_handling".to_string(),
-        ],
-        constraints: vec![
-            "one_task_at_a_time".to_string(),
-            "limited_to_registered_actions".to_string(),
-        ],
-        status: "ready".to_string(),
     }
 }
 

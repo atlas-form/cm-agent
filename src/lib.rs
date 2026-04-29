@@ -44,5 +44,7 @@ pub(crate) use perception::{
     Modality, Percept, PerceptContent, Perception, PerceptionOutput, Signal, Stimulus,
     StimulusSpan, TextUtterancePerception,
 };
-pub(crate) use roles::{RoleAction, RoleCatalog, RoleId, RoleProfile};
+pub(crate) use roles::{
+    RoleAction, RoleCatalog, RoleId, RoleProfile, RolePromptBuilder, RolePromptInput,
+};
 pub extern crate tracing;

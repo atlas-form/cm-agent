@@ -106,9 +106,6 @@ impl AgentManager {
     }
 
     fn create_session(&self, request: &AgentRequest) -> AgentSession {
-        let mut runtime = self.config.runtime.clone();
-        runtime.worker_profiles = self.config.roles.to_worker_profiles();
-
         AgentSession::new(
             AgentSessionScope {
                 user_id: request.user_id.clone(),
@@ -117,7 +114,8 @@ impl AgentManager {
                 session_id: request.session_id.clone(),
             },
             AgentSessionConfig {
-                runtime,
+                runtime: self.config.runtime.clone(),
+                roles: self.config.roles.clone(),
                 commander_cognition: self.config.commander_cognition.clone(),
                 worker_cognition: self.config.worker_cognition.clone(),
                 memory_store: self.config.memory_store.clone(),

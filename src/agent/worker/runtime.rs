@@ -10,12 +10,14 @@ use crate::{
         messaging::{MessageRx, MessageTx},
         protocol::{AgentId, Message, MessageId, Payload, TaskId, WorkerId},
     },
+    roles::{RoleProfile, RolePromptBuilder, RolePromptInput},
 };
 
 pub type BoxedAction = Box<dyn Action<Result = ActionResult<String, String, ()>> + Send>;
 
 pub struct Worker {
     id: AgentId,
+    role: RoleProfile,
     state: WorkerState,
     phase: WorkerPhase,
     current_task: Option<Task>,
@@ -28,13 +30,15 @@ pub struct Worker {
 
 impl Worker {
     pub fn new(
-        id: AgentId,
+        role: RoleProfile,
         cognition: Box<dyn Cognition + Send>,
         receiver: MessageRx,
         sender: MessageTx,
     ) -> Self {
+        let id = AgentId(format!("worker.{}", role.runtime_role));
         Self {
             id,
+            role,
             state: WorkerState::Idle,
             phase: WorkerPhase::Thinking,
             current_task: None,
@@ -131,7 +135,7 @@ impl Worker {
                 kind: IntentKind::Planning,
                 description: task.description.clone(),
             },
-            context: build_context(self.id.clone(), self.phase, &self.memory),
+            context: self.build_cognition_context(task),
         };
 
         match self.cognition.evaluate(input).await {
@@ -232,26 +236,57 @@ impl Worker {
         self.state = WorkerState::Idle;
         warn!(task_id = %task.id, reason = %reason, "worker reporting task failed");
     }
+    fn build_cognition_context(&self, task: &Task) -> Context {
+        build_context(
+            self.id.clone(),
+            self.phase,
+            &self.memory,
+            &self.role,
+            &task.description,
+        )
+    }
 }
 
-fn build_context(worker_id: AgentId, phase: WorkerPhase, memory: &TaskMemory) -> Context {
+fn build_context(
+    worker_id: AgentId,
+    phase: WorkerPhase,
+    memory: &TaskMemory,
+    role: &RoleProfile,
+    task_description: &str,
+) -> Context {
     let mut metadata = HashMap::new();
     metadata.insert("worker_id".to_string(), worker_id.0);
+    metadata.insert("role.id".to_string(), role.id.0.clone());
+    metadata.insert("role.name".to_string(), role.name.clone());
+    metadata.insert("role.runtime_role".to_string(), role.runtime_role.clone());
     metadata.insert("phase".to_string(), format!("{phase:?}"));
 
     for (key, value) in &memory.state {
         metadata.insert(format!("memory.{key}"), value.clone());
     }
 
-    let facts = memory
-        .progress
-        .iter()
-        .map(|entry| Fact {
-            source: "worker.runtime".to_string(),
-            content: entry.clone(),
-            reliability: 1.0,
-        })
-        .collect::<Vec<_>>();
+    let role_prompt = RolePromptBuilder::build_worker_prompt(&RolePromptInput {
+        role: role.clone(),
+        task: task_description.to_string(),
+        facts: memory.progress.clone(),
+    });
+
+    let mut facts = vec![Fact {
+        source: "roles.prompt".to_string(),
+        content: role_prompt,
+        reliability: 1.0,
+    }];
+    facts.extend(
+        memory
+            .progress
+            .iter()
+            .map(|entry| Fact {
+                source: "worker.runtime".to_string(),
+                content: entry.clone(),
+                reliability: 1.0,
+            })
+            .collect::<Vec<_>>(),
+    );
 
     Context { facts, metadata }
 }
