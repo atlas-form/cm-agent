@@ -42,6 +42,36 @@ impl Default for RoleCatalog {
 fn builtin_roles() -> Vec<RoleProfile> {
     vec![
         role(
+            "role.chat-assistant",
+            "对话助手",
+            "chat",
+            5,
+            &[
+                "你好",
+                "hello",
+                "hi",
+                "问一下",
+                "请问",
+                "什么",
+                "为什么",
+                "怎么",
+                "如何",
+                "是否",
+                "是不是",
+                "能否",
+                "可以吗",
+                "解释",
+                "说明",
+                "区别",
+                "概念",
+                "什么意思",
+                "聊聊",
+            ],
+            &[RoleAction::Answer, RoleAction::Query],
+            &["chat.answer", "chat.clarification"],
+            &["knowledge.explanation", "intent.classification"],
+        ),
+        role(
             "role.ops-strategist",
             "运营策略师",
             "ops",
@@ -198,7 +228,8 @@ mod tests {
         let catalog = RoleCatalog::builtin();
         let roles = catalog.roles();
 
-        assert_eq!(roles.len(), 8);
+        assert_eq!(roles.len(), 9);
+        assert!(roles.iter().any(|role| role.runtime_role == "chat"));
         assert!(roles.iter().any(|role| role.runtime_role == "ops"));
         assert!(roles.iter().any(|role| role.runtime_role == "data"));
         assert!(roles.iter().any(|role| role.runtime_role == "web"));
@@ -208,7 +239,12 @@ mod tests {
     fn builtin_catalog_exports_worker_profiles() {
         let profiles = RoleCatalog::builtin().to_worker_profiles();
 
-        assert_eq!(profiles.len(), 8);
+        assert_eq!(profiles.len(), 9);
+        assert!(
+            profiles
+                .iter()
+                .any(|profile| profile.worker_id.0 == "worker.chat")
+        );
         assert!(
             profiles
                 .iter()

@@ -162,7 +162,7 @@ async fn manager_initializes_builtin_roles_for_each_session() {
 
     assert_eq!(
         available_workers.lock().expect("lock capture").as_deref(),
-        Some("8")
+        Some("9")
     );
     assert_eq!(manager.active_session_count(), 0);
 }
@@ -237,10 +237,41 @@ async fn role_aware_worker_factory_receives_each_builtin_role() {
         .expect("request should complete");
 
     let constructed_roles = constructed_roles.lock().expect("lock constructed roles");
-    assert_eq!(constructed_roles.len(), 8);
+    assert_eq!(constructed_roles.len(), 9);
+    assert!(constructed_roles.contains("chat"));
     assert!(constructed_roles.contains("ops"));
     assert!(constructed_roles.contains("data"));
     assert!(constructed_roles.contains("web"));
+}
+
+#[tokio::test]
+async fn commander_routes_plain_question_to_chat_role() {
+    let runtime_role = Arc::new(Mutex::new(None));
+    let worker_capture = Arc::clone(&runtime_role);
+    let manager = AgentManager::new(AgentManagerConfig::new(
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
+        Arc::new(move || {
+            Ok(Box::new(CapturingWorkerCognition {
+                runtime_role: Arc::clone(&worker_capture),
+            }))
+        }),
+    ));
+
+    manager
+        .run_request(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-chat".to_string()),
+            input: "你能解释一下这个 agent 是什么吗".to_string(),
+        })
+        .await
+        .expect("request should complete");
+
+    assert_eq!(
+        runtime_role.lock().expect("lock role capture").as_deref(),
+        Some("chat")
+    );
 }
 
 #[tokio::test]

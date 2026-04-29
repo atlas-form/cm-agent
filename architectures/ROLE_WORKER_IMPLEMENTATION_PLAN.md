@@ -25,7 +25,7 @@ Role 是 Worker 的身份、能力、prompt 和约束。
 src/roles/
   RoleProfile
   RoleCatalog
-  8 个内置 role profile
+  9 个内置 role profile
 ```
 
 每个 session 启动时，`AgentManagerConfig.roles` 会转成 `WorkerProfile`，注入 `SessionContext.worker_catalog`。
@@ -61,6 +61,7 @@ AgentManager
       -> SessionRuntime
           -> SessionContext
           -> Commander
+          -> RoleWorker(chat)
           -> RoleWorker(ops)
           -> RoleWorker(data)
           -> RoleWorker(service)
@@ -146,6 +147,7 @@ src/roles/prompt.rs
 
 ```text
 prompts/zh/roles/
+  chat.md
   ops.md
   data.md
   service.md
@@ -273,6 +275,7 @@ for role in RoleCatalog:
 worker.ops
 worker.data
 worker.creative
+worker.chat
 ```
 
 就是真正不同的 Worker task。
@@ -307,6 +310,7 @@ pub type RoleCognitionFactory =
 ```text
 worker.ops -> ops prompt
 worker.data -> data prompt
+worker.chat -> chat prompt
 ```
 
 为了兼容简单使用方式，旧 factory 仍然保留，并自动适配到 role-aware factory：

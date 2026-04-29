@@ -201,6 +201,7 @@ src/bin/web_stream_example.rs
 library 初始化时默认带业务角色：
 
 ```text
+chat
 ops
 data
 service
@@ -214,6 +215,7 @@ web
 每个 `AgentSession` 启动时，`SessionRuntime` 会按 `RoleCatalog` 创建一组 session 内短生命 Worker：
 
 ```text
+worker.chat
 worker.ops
 worker.data
 worker.service
@@ -233,6 +235,8 @@ Worker + RoleProfile + RolePrompt + Cognition
 ```
 
 `Commander` 使用 `RoleRouter` 选择 primary role 和 support roles。
+
+普通提问、解释、闲聊、概念说明，默认进入 `chat` role。
 
 primary role 先执行，support roles 后续并发补充，最后由 Commander 汇总角色贡献。
 

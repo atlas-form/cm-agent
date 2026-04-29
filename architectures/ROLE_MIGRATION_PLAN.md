@@ -11,7 +11,7 @@
 已完成：
 
 - `src/roles` 已建立。
-- 内置 8 个 role profile 已接入默认 `AgentManagerConfig`。
+- 内置 9 个 role profile 已接入默认 `AgentManagerConfig`。
 - 每个 session 会启动一组短生命 role workers。
 - `Commander` 已接入 `RoleRouter`，可以选择 primary/support roles。
 - `Worker` 已持有 `RoleProfile`，并在 cognition context 中注入 role 信息和 role prompt。
@@ -100,6 +100,16 @@ web
 
 但这两个没有 manifest，第一阶段可以作为 fallback role profile 补齐。
 
+Rust 新增：
+
+```text
+chat         对话助手
+```
+
+`chat` 用来承接普通问答、解释、概念说明、闲聊、澄清类输入。
+
+它不是 skill，也不是工具执行角色。
+
 RoleProfile 最小字段：
 
 ```rust
@@ -149,7 +159,7 @@ pub struct RoleRoute {
 - preferred_actions 命中加分
 - domain 命中加分
 - priority 用于同分排序
-- 默认 primary role 是 `ops`
+- 默认 primary role 是 `chat`
 - support roles 是 primary 之后的高分角色
 
 不要一开始迁移 Python 里所有特殊 keyword 规则。
@@ -186,6 +196,7 @@ worker.engineering
 worker.accounting
 worker.design
 worker.web
+worker.chat
 ```
 
 SessionRuntime 启动时，根据 RoleCatalog 注册多个 worker profile。
@@ -269,7 +280,7 @@ collab_done
 
 1. 新增 `src/roles`。
 2. 写 `RoleProfile` / `RoleCatalog`。
-3. 内置 8 个 role profile。
+3. 内置 9 个 role profile。
 4. `AgentManagerConfig` 默认持有 `RoleCatalog::builtin()`。
 5. `AgentManager` 创建 session 时，把 `RoleCatalog` 转成 `WorkerProfile`。
 6. `SessionRuntime` 使用这些 worker profiles 初始化 `SessionContext.worker_catalog`。

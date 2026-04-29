@@ -8,6 +8,7 @@ pub struct RoleId(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RoleAction {
+    Answer,
     Analyze,
     Create,
     Optimize,
@@ -19,6 +20,7 @@ pub enum RoleAction {
 impl RoleAction {
     pub const fn as_str(&self) -> &'static str {
         match self {
+            Self::Answer => "answer",
             Self::Analyze => "analyze",
             Self::Create => "create",
             Self::Optimize => "optimize",

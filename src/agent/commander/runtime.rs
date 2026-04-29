@@ -295,7 +295,7 @@ impl Commander {
     }
 
     fn dispatch_task_to_worker(&self, task: TaskSpec, target_worker: Option<WorkerId>) -> bool {
-        let target_worker = target_worker.unwrap_or_else(|| WorkerId("worker.ops".to_string()));
+        let target_worker = target_worker.unwrap_or_else(|| WorkerId("worker.chat".to_string()));
         let Some(worker_tx) = self.session_context.get_worker_tx(&target_worker) else {
             warn!(worker_id = %target_worker.0, "no worker tx available for dispatch");
             return false;

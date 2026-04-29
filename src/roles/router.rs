@@ -67,7 +67,13 @@ impl RoleRouter {
             .catalog
             .roles()
             .iter()
-            .find(|role| role.runtime_role == "ops")
+            .find(|role| role.runtime_role == "chat")
+            .or_else(|| {
+                self.catalog
+                    .roles()
+                    .iter()
+                    .find(|role| role.runtime_role == "ops")
+            })
             .or_else(|| self.catalog.roles().first())
             .expect("role catalog should not be empty");
 
@@ -183,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_ops_for_empty_message() {
+    fn falls_back_to_chat_for_empty_message() {
         let route = RoleRouter::default().route(RoleRouteInput {
             message: "".to_string(),
             domain_id: None,
@@ -191,6 +197,18 @@ mod tests {
             max_roles: 3,
         });
 
-        assert_eq!(route.primary_runtime_role, "ops");
+        assert_eq!(route.primary_runtime_role, "chat");
+    }
+
+    #[test]
+    fn routes_question_to_chat_role() {
+        let route = RoleRouter::default().route(RoleRouteInput {
+            message: "你能解释一下这个 agent 是什么吗".to_string(),
+            domain_id: None,
+            action: None,
+            max_roles: 3,
+        });
+
+        assert_eq!(route.primary_runtime_role, "chat");
     }
 }
