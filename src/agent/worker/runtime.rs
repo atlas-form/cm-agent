@@ -73,10 +73,23 @@ impl Worker {
     }
 
     fn handle_message(&mut self, message: Message) {
-        let Payload::Text { content } = message.payload else {
-            return;
+        let context = message.context.clone();
+        let requester = message.from.clone();
+        let payload = match message.payload {
+            Payload::WorkerAssignment { assignment } => {
+                self.start_task(Task {
+                    id: assignment.task_id.0.clone(),
+                    context,
+                    description: assignment.objective.clone(),
+                    requester,
+                    assignment: Some(assignment),
+                });
+                return;
+            }
+            Payload::Text { content } => content,
+            _ => return,
         };
-        let payload = content.trim();
+        let payload = payload.trim();
 
         match payload {
             "control:start" => {
@@ -103,9 +116,10 @@ impl Worker {
                 if let Some(description) = payload.strip_prefix("task:start:") {
                     self.start_task(Task {
                         id: new_task_id(),
-                        context: message.context,
+                        context: context.clone(),
                         description: description.trim().to_string(),
-                        requester: message.from,
+                        requester: requester.clone(),
+                        assignment: None,
                     });
                 }
             }
@@ -212,11 +226,32 @@ impl Worker {
             context: task.context,
             from: self.id.clone(),
             to: task.requester,
-            payload: Payload::WorkerReportFinished {
-                worker_id: WorkerId(self.id.0.clone()),
-                task_id: TaskId(task.id),
-                output: self.memory.state.get("last_cognition_output").cloned(),
-            },
+            payload: task
+                .assignment
+                .as_ref()
+                .map(|assignment| Payload::WorkerReport {
+                    report: crate::core::protocol::WorkerReport {
+                        graph_id: assignment.graph_id.clone(),
+                        node_id: assignment.node_id.clone(),
+                        task_id: TaskId(task.id.clone()),
+                        worker_id: WorkerId(self.id.0.clone()),
+                        role: assignment.role.clone(),
+                        content: self
+                            .memory
+                            .state
+                            .get("last_cognition_output")
+                            .map(|output| extract_worker_content(output))
+                            .unwrap_or_default(),
+                        evidence: Vec::new(),
+                        open_questions: Vec::new(),
+                        status: crate::core::protocol::WorkerReportStatus::Completed,
+                    },
+                })
+                .unwrap_or_else(|| Payload::WorkerReportFinished {
+                    worker_id: WorkerId(self.id.0.clone()),
+                    task_id: TaskId(task.id),
+                    output: self.memory.state.get("last_cognition_output").cloned(),
+                }),
         });
         self.phase = WorkerPhase::Thinking;
         self.state = WorkerState::Idle;
@@ -238,11 +273,27 @@ impl Worker {
             context: task.context,
             from: self.id.clone(),
             to: task.requester,
-            payload: Payload::WorkerReportFailed {
-                worker_id: WorkerId(self.id.0.clone()),
-                task_id: TaskId(task.id.clone()),
-                reason: reason.clone(),
-            },
+            payload: task
+                .assignment
+                .as_ref()
+                .map(|assignment| Payload::WorkerReport {
+                    report: crate::core::protocol::WorkerReport {
+                        graph_id: assignment.graph_id.clone(),
+                        node_id: assignment.node_id.clone(),
+                        task_id: TaskId(task.id.clone()),
+                        worker_id: WorkerId(self.id.0.clone()),
+                        role: assignment.role.clone(),
+                        content: reason.clone(),
+                        evidence: Vec::new(),
+                        open_questions: vec![reason.clone()],
+                        status: crate::core::protocol::WorkerReportStatus::Failed,
+                    },
+                })
+                .unwrap_or_else(|| Payload::WorkerReportFailed {
+                    worker_id: WorkerId(self.id.0.clone()),
+                    task_id: TaskId(task.id.clone()),
+                    reason: reason.clone(),
+                }),
         });
         self.current_action = None;
         self.phase = WorkerPhase::Thinking;
@@ -255,7 +306,7 @@ impl Worker {
             self.phase,
             &self.memory,
             &self.role,
-            &task.description,
+            task,
         )
     }
 }
@@ -265,7 +316,7 @@ fn build_context(
     phase: WorkerPhase,
     memory: &TaskMemory,
     role: &RoleProfile,
-    task_description: &str,
+    task: &Task,
 ) -> Context {
     let mut metadata = HashMap::new();
     metadata.insert("worker_id".to_string(), worker_id.0);
@@ -278,17 +329,50 @@ fn build_context(
         metadata.insert(format!("memory.{key}"), value.clone());
     }
 
+    if let Some(assignment) = &task.assignment {
+        metadata.insert("assignment.graph_id".to_string(), assignment.graph_id.0.clone());
+        metadata.insert("assignment.node_id".to_string(), assignment.node_id.0.clone());
+        metadata.insert("assignment.role".to_string(), assignment.role.clone());
+        metadata.insert("assignment.attempt".to_string(), assignment.attempt.to_string());
+        metadata.insert(
+            "assignment.input_count".to_string(),
+            assignment.inputs.len().to_string(),
+        );
+        if let Some(instruction) = &assignment.rework_instruction {
+            metadata.insert("assignment.rework_instruction".to_string(), instruction.clone());
+        }
+    }
+
+    let mut facts = Vec::new();
+    if let Some(assignment) = &task.assignment {
+        facts.push(Fact {
+            source: "worker.assignment".to_string(),
+            content: format!(
+                "node={} role={} attempt={} objective={}",
+                assignment.node_id.0, assignment.role, assignment.attempt, assignment.objective
+            ),
+            reliability: 1.0,
+        });
+        for input in &assignment.inputs {
+            facts.push(Fact {
+                source: format!("worker.assignment.input.{}", input.node_id.0),
+                content: input.content.clone(),
+                reliability: 1.0,
+            });
+        }
+    }
+
     let role_prompt = RolePromptBuilder::build_worker_prompt(&RolePromptInput {
         role: role.clone(),
-        task: task_description.to_string(),
+        task: task.description.clone(),
         facts: memory.progress.clone(),
     });
 
-    let mut facts = vec![Fact {
+    facts.push(Fact {
         source: "roles.prompt".to_string(),
         content: role_prompt,
         reliability: 1.0,
-    }];
+    });
     facts.extend(
         memory
             .progress
@@ -302,6 +386,21 @@ fn build_context(
     );
 
     Context { facts, metadata }
+}
+
+fn extract_worker_content(output: &str) -> String {
+    let trimmed = output.trim();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return trimmed.to_string();
+    };
+
+    value
+        .pointer("/decision/action/parameters/answer")
+        .and_then(|value| value.as_str())
+        .or_else(|| value.pointer("/role_output").and_then(|value| value.as_str()))
+        .or_else(|| value.pointer("/rationale/primary").and_then(|value| value.as_str()))
+        .map(ToString::to_string)
+        .unwrap_or_else(|| trimmed.to_string())
 }
 
 fn new_task_id() -> String {

@@ -8,9 +8,11 @@ mod routing;
 mod runtime;
 mod state;
 mod task;
+mod task_graph;
 
 pub use memory::*;
 pub use routing::*;
 pub use runtime::*;
 pub use state::*;
 pub use task::*;
+pub use task_graph::*;

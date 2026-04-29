@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::{SessionId, TaskId, WorkerId};
+use crate::protocol::{
+    Evaluation, SessionId, TaskGraph, TaskGraphId, TaskId, TaskNodeId, WorkerId,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionEvent {
     Started {
@@ -44,6 +46,57 @@ pub enum SessionEvent {
     CollaborationFinished {
         session_id: SessionId,
     },
+    TaskGraphPlanned {
+        session_id: SessionId,
+        graph: TaskGraph,
+    },
+    TaskNodeReady {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        node_id: TaskNodeId,
+        worker_id: WorkerId,
+    },
+    TaskNodeStarted {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        node_id: TaskNodeId,
+        worker_id: WorkerId,
+        attempt: u8,
+    },
+    TaskNodeReported {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        node_id: TaskNodeId,
+        worker_id: WorkerId,
+    },
+    TaskNodeEvaluated {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        evaluation: Evaluation,
+    },
+    TaskNodeReworkRequested {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        node_id: TaskNodeId,
+        worker_id: WorkerId,
+        attempt: u8,
+        instruction: String,
+    },
+    TaskNodePassed {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        node_id: TaskNodeId,
+    },
+    TaskNodeFailed {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+        node_id: TaskNodeId,
+        reason: String,
+    },
+    TaskGraphFinished {
+        session_id: SessionId,
+        graph_id: TaskGraphId,
+    },
     Output {
         session_id: SessionId,
         content: String,
@@ -69,6 +122,15 @@ impl SessionEvent {
             Self::CollaborationWorkerStarted { .. } => "collaboration_worker_started",
             Self::CollaborationWorkerFinished { .. } => "collaboration_worker_finished",
             Self::CollaborationFinished { .. } => "collaboration_finished",
+            Self::TaskGraphPlanned { .. } => "task_graph_planned",
+            Self::TaskNodeReady { .. } => "task_node_ready",
+            Self::TaskNodeStarted { .. } => "task_node_started",
+            Self::TaskNodeReported { .. } => "task_node_reported",
+            Self::TaskNodeEvaluated { .. } => "task_node_evaluated",
+            Self::TaskNodeReworkRequested { .. } => "task_node_rework_requested",
+            Self::TaskNodePassed { .. } => "task_node_passed",
+            Self::TaskNodeFailed { .. } => "task_node_failed",
+            Self::TaskGraphFinished { .. } => "task_graph_finished",
             Self::Output { .. } => "output",
             Self::Failed { .. } => "failed",
             Self::Finished { .. } => "finished",

@@ -1,4 +1,4 @@
-use crate::protocol::{AgentId, TaskId, WorkerId};
+use crate::protocol::{AgentId, TaskId, WorkerAssignment, WorkerId, WorkerReport};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskSpec {
@@ -42,6 +42,12 @@ pub enum Payload {
         worker_id: WorkerId,
         task_id: TaskId,
         reason: String,
+    },
+    WorkerAssignment {
+        assignment: WorkerAssignment,
+    },
+    WorkerReport {
+        report: WorkerReport,
     },
     DecisionIntent {
         intent: DecisionIntent,

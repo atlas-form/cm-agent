@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::{info, warn};
 
 use super::{
-    CommanderPhase, CommanderState, CommanderTask, RoutedDecision, TaskMemory,
-    decision_intent_from_json,
+    CommanderPhase, CommanderState, CommanderTask, EvaluationOutcome, RoutedDecision, TaskGraphRuntime,
+    TaskMemory, decision_intent_from_json, plan_task_graph,
 };
 use crate::{
     cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind},
@@ -60,6 +60,7 @@ pub struct Commander {
     pending_support_workers: Vec<WorkerId>,
     completed_support_workers: Vec<WorkerId>,
     collaboration_outputs: HashMap<WorkerId, RoleContribution>,
+    active_task_graph: Option<TaskGraphRuntime>,
 }
 
 impl Commander {
@@ -93,6 +94,7 @@ impl Commander {
             pending_support_workers: Vec::new(),
             completed_support_workers: Vec::new(),
             collaboration_outputs: HashMap::new(),
+            active_task_graph: None,
         }
     }
 
@@ -199,6 +201,9 @@ impl Commander {
                 self.phase = CommanderPhase::Idle;
                 self.state = CommanderState::Idle;
             }
+            Payload::WorkerReport { report } => {
+                self.handle_task_graph_report(report, &context).await;
+            }
             Payload::Control { signal, .. } => {
                 if matches!(signal, crate::core::protocol::ControlSignal::Shutdown) {
                     self.state = CommanderState::Shutdown;
@@ -220,6 +225,7 @@ impl Commander {
         self.pending_support_workers.clear();
         self.completed_support_workers.clear();
         self.collaboration_outputs.clear();
+        self.active_task_graph = None;
         self.memory.push_progress("human command received");
         self.memory
             .set_state("incoming_task_id", incoming_task.id.clone());
@@ -231,6 +237,11 @@ impl Commander {
 
     async fn step_thinking(&mut self) {
         let role_route = self.current_role_route();
+        if self.fast_route_enabled && self.try_task_graph_route(role_route.as_ref()).await {
+            self.phase = CommanderPhase::Idle;
+            self.state = CommanderState::Idle;
+            return;
+        }
         if self.fast_route_enabled && self.try_fast_route(role_route.as_ref()) {
             self.phase = CommanderPhase::Idle;
             self.state = CommanderState::Idle;
@@ -354,6 +365,200 @@ impl Commander {
             },
         );
         worker_tx.send(task_message).is_ok()
+    }
+
+    fn dispatch_assignment_to_worker(
+        &self,
+        assignment: crate::core::protocol::WorkerAssignment,
+    ) -> bool {
+        let Some(worker_tx) = self.session_context.get_worker_tx(&assignment.worker_id) else {
+            warn!(
+                worker_id = %assignment.worker_id.0,
+                "no worker tx available for task graph assignment"
+            );
+            return false;
+        };
+
+        let task_message = Message::new_with_context(
+            next_message_id(),
+            self.current_context.clone(),
+            self.id.clone(),
+            AgentId(assignment.worker_id.0.clone()),
+            Payload::WorkerAssignment { assignment },
+        );
+        worker_tx.send(task_message).is_ok()
+    }
+
+    async fn try_task_graph_route(&mut self, role_route: Option<&RoleRoute>) -> bool {
+        let Some(current_task) = self.current_task.clone() else {
+            return false;
+        };
+        if role_route
+            .map(primary_route_score)
+            .is_some_and(|score| score < self.fast_route_min_score)
+        {
+            return false;
+        }
+
+        let task_id = TaskId(current_task.id);
+        let graph = plan_task_graph(&task_id, &current_task.description, role_route);
+        if graph
+            .nodes
+            .iter()
+            .any(|node| self.session_context.get_worker_tx(&node.worker_id).is_none())
+        {
+            return false;
+        }
+
+        self.memory.push_progress(format!(
+            "task graph planned: {} nodes",
+            graph.nodes.len()
+        ));
+        self.emit_event(SessionEvent::TaskGraphPlanned {
+            session_id: self.session_id_from_context(&self.current_context),
+            graph: graph.clone(),
+        });
+        self.active_collaboration = None;
+        self.active_collaboration_task_id = None;
+        self.pending_support_workers.clear();
+        self.completed_support_workers.clear();
+        self.collaboration_outputs.clear();
+        let runtime = TaskGraphRuntime::new(graph);
+        self.schedule_task_graph_runtime(runtime).await;
+        true
+    }
+
+    async fn handle_task_graph_report(
+        &mut self,
+        report: crate::core::protocol::WorkerReport,
+        context: &MessageContext,
+    ) {
+        self.memory.push_progress(format!(
+            "task graph node {} reported by {}",
+            report.node_id.0, report.worker_id.0
+        ));
+        self.emit_event(SessionEvent::WorkerFinished {
+            session_id: self.session_id_from_context(context),
+            worker_id: report.worker_id.clone(),
+            task_id: report.task_id.clone(),
+        });
+        self.emit_event(SessionEvent::TaskNodeReported {
+            session_id: self.session_id_from_context(context),
+            graph_id: report.graph_id.clone(),
+            node_id: report.node_id.clone(),
+            worker_id: report.worker_id.clone(),
+        });
+
+        let Some(mut runtime) = self.active_task_graph.take() else {
+            return;
+        };
+        let graph_id = runtime.graph.graph_id.clone();
+        let worker_id = report.worker_id.clone();
+        let node_id = report.node_id.clone();
+        let outcome = runtime.apply_report(report);
+
+        match outcome {
+            EvaluationOutcome::Passed(evaluation) => {
+                self.emit_event(SessionEvent::TaskNodeEvaluated {
+                    session_id: self.session_id_from_context(context),
+                    graph_id: graph_id.clone(),
+                    evaluation,
+                });
+                self.emit_event(SessionEvent::TaskNodePassed {
+                    session_id: self.session_id_from_context(context),
+                    graph_id,
+                    node_id,
+                });
+            }
+            EvaluationOutcome::Rework {
+                evaluation,
+                instruction,
+            } => {
+                let attempt = runtime.attempts.get(&node_id).copied().unwrap_or(1) + 1;
+                self.emit_event(SessionEvent::TaskNodeEvaluated {
+                    session_id: self.session_id_from_context(context),
+                    graph_id: graph_id.clone(),
+                    evaluation,
+                });
+                self.emit_event(SessionEvent::TaskNodeReworkRequested {
+                    session_id: self.session_id_from_context(context),
+                    graph_id,
+                    node_id,
+                    worker_id,
+                    attempt,
+                    instruction,
+                });
+            }
+            EvaluationOutcome::Failed(evaluation) => {
+                let reason = evaluation.reasons.join("; ");
+                self.emit_event(SessionEvent::TaskNodeEvaluated {
+                    session_id: self.session_id_from_context(context),
+                    graph_id: graph_id.clone(),
+                    evaluation,
+                });
+                self.emit_event(SessionEvent::TaskNodeFailed {
+                    session_id: self.session_id_from_context(context),
+                    graph_id,
+                    node_id,
+                    reason,
+                });
+            }
+        }
+
+        self.schedule_task_graph_runtime(runtime).await;
+    }
+
+    async fn schedule_task_graph_runtime(&mut self, mut runtime: TaskGraphRuntime) {
+        if runtime.is_finished() {
+            self.finish_task_graph(runtime).await;
+            return;
+        }
+
+        let ready_nodes = runtime.ready_nodes();
+        for node in ready_nodes {
+            self.emit_event(SessionEvent::TaskNodeReady {
+                session_id: self.session_id_from_context(&self.current_context),
+                graph_id: runtime.graph.graph_id.clone(),
+                node_id: node.id.clone(),
+                worker_id: node.worker_id.clone(),
+            });
+            let assignment = runtime.build_assignment(&node);
+            if self.dispatch_assignment_to_worker(assignment.clone()) {
+                runtime.mark_running(&assignment);
+                self.emit_event(SessionEvent::WorkerStarted {
+                    session_id: self.session_id_from_context(&self.current_context),
+                    worker_id: assignment.worker_id.clone(),
+                    task_id: assignment.task_id.clone(),
+                });
+                self.emit_event(SessionEvent::TaskNodeStarted {
+                    session_id: self.session_id_from_context(&self.current_context),
+                    graph_id: assignment.graph_id,
+                    node_id: assignment.node_id,
+                    worker_id: assignment.worker_id,
+                    attempt: assignment.attempt,
+                });
+            }
+        }
+
+        self.active_task_graph = Some(runtime);
+    }
+
+    async fn finish_task_graph(&mut self, runtime: TaskGraphRuntime) {
+        let content = runtime.synthesize();
+        self.emit_event(SessionEvent::TaskGraphFinished {
+            session_id: self.session_id_from_context(&self.current_context),
+            graph_id: runtime.graph.graph_id.clone(),
+        });
+        let _ = self.sender.send(Message::new_with_context(
+            next_message_id(),
+            self.current_context.clone(),
+            self.id.clone(),
+            self.world_id.clone(),
+            Payload::Text { content },
+        ));
+        self.active_task_graph = None;
+        self.phase = CommanderPhase::Idle;
+        self.state = CommanderState::Idle;
     }
 
     fn try_fast_route(&mut self, role_route: Option<&RoleRoute>) -> bool {

@@ -266,13 +266,13 @@ async fn commander_routes_plain_question_to_chat_role() {
 
 #[tokio::test]
 async fn commander_uses_role_router_when_target_worker_is_missing() {
-    let runtime_role = Arc::new(Mutex::new(None));
-    let worker_capture = Arc::clone(&runtime_role);
+    let runtime_roles = Arc::new(Mutex::new(HashSet::new()));
+    let worker_capture = Arc::clone(&runtime_roles);
     let manager = AgentManager::new(AgentManagerConfig::new(
         Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
         Arc::new(move || {
-            Ok(Box::new(CapturingWorkerCognition {
-                runtime_role: Arc::clone(&worker_capture),
+            Ok(Box::new(CapturingWorkerSetCognition {
+                runtime_roles: Arc::clone(&worker_capture),
             }))
         }),
     ));
@@ -288,14 +288,12 @@ async fn commander_uses_role_router_when_target_worker_is_missing() {
         .await
         .expect("request should complete");
 
-    assert_eq!(
-        runtime_role.lock().expect("lock role capture").as_deref(),
-        Some("data")
-    );
+    let runtime_roles = runtime_roles.lock().expect("lock role set capture");
+    assert!(runtime_roles.contains("data"));
 }
 
 #[tokio::test]
-async fn commander_dispatches_support_roles_after_primary_role() {
+async fn commander_dispatches_task_graph_roles_after_upstream_role() {
     let runtime_roles = Arc::new(Mutex::new(HashSet::new()));
     let worker_capture = Arc::clone(&runtime_roles);
     let manager = AgentManager::new(AgentManagerConfig::new(
@@ -321,13 +319,13 @@ async fn commander_dispatches_support_roles_after_primary_role() {
     let runtime_roles = runtime_roles.lock().expect("lock role set capture");
     assert!(runtime_roles.contains("data"));
     assert!(runtime_roles.contains("creative"));
-    assert!(result.output.contains("支持角色已完成"));
-    assert!(result.output.contains("primary data"));
-    assert!(result.output.contains("support creative"));
+    assert!(result.output.contains("多智能体任务图已完成"));
+    assert!(result.output.contains("数据诊断(data)"));
+    assert!(result.output.contains("创意产出(creative)"));
 }
 
 #[tokio::test]
-async fn stream_emits_role_collaboration_events() {
+async fn stream_emits_task_graph_events() {
     let manager = AgentManager::new(AgentManagerConfig::new(
         Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
         Arc::new(|| Ok(Box::new(NoopWorkerCognition))),
@@ -368,16 +366,16 @@ async fn stream_emits_role_collaboration_events() {
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, SessionEvent::CollaborationStarted { .. }))
+            .any(|event| matches!(event, SessionEvent::TaskGraphPlanned { .. }))
     );
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, SessionEvent::CollaborationWorkerFinished { .. }))
+            .any(|event| matches!(event, SessionEvent::TaskNodeStarted { .. }))
     );
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, SessionEvent::CollaborationFinished { .. }))
+            .any(|event| matches!(event, SessionEvent::TaskGraphFinished { .. }))
     );
 }
