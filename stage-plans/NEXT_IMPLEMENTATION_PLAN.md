@@ -2,7 +2,7 @@
 
 本文是当前唯一的下一步执行入口。
 
-`00_FINAL_DESIGN.md` 是长期设计定稿，不在这里重复。
+`../architectures/00_FINAL_DESIGN.md` 是长期设计定稿，不在这里重复。
 
 已完成的历史计划已经删除，不再保留：
 
@@ -73,7 +73,7 @@ RoleRoute
 
 详细计划见：
 
-- `SSE_STREAMING_PLAN.md`
+- `../architectures/SSE_STREAMING_PLAN.md`
 
 需要做：
 
