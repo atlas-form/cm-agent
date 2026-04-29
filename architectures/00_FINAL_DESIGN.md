@@ -243,6 +243,54 @@ primary role 先执行，support roles 后续并发补充，最后由 Commander 
 
 role 协作过程通过 `SessionEvent` 暴露，web server 可转换为 SSE。
 
+## Prompt 规则
+
+Prompt 内容必须放在 markdown 文件里。
+
+Rust 代码只负责：
+
+- 选择 prompt 文件路径
+- 调用 `agent_utils::prompt::Prompt`
+- 渲染 `{{key}}` 变量
+- 提取 `JSON schema:`
+- 把 prompt 注入 cognition context 或 system message
+
+禁止在 Rust 代码里硬编码大段 prompt 文案。
+
+允许在 Rust 代码里出现的 prompt 相关内容只有：
+
+- prompt 文件路径
+- 模板变量名
+- fallback 错误信息
+- 很短的结构性标签
+
+Role prompt 应放在：
+
+```text
+prompts/zh/roles/
+  chat.md
+  ops.md
+  data.md
+  service.md
+  creative.md
+  engineering.md
+  accounting.md
+  design.md
+  web.md
+```
+
+Cognition prompt 应放在：
+
+```text
+prompts/zh/cognition/
+  commander_routing.md
+  worker_execution.md
+```
+
+如果要新增 prompt，先新增 md 文件，再让 Rust 加载它。
+
+不要把 prompt 写进 `src/roles/prompt.rs`、Commander、Worker 或 CognitionEngine。
+
 ## 与 Python pipeline 的区别
 
 Python 是：

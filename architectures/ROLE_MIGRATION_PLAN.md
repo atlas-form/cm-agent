@@ -209,18 +209,45 @@ SessionRuntime 启动时，根据 RoleCatalog 注册多个 worker profile。
 
 不要直接照搬 Python `prompt_builder.py` 的长 prompt。
 
-按 Rust 结构重写短 prompt：
+按 Rust 结构重写短 prompt，但 prompt 文案必须放在 md 文件里：
 
 ```text
-你是 {role.name}
-能力：{required_capabilities}
-偏好动作：{preferred_actions}
-任务：{task}
-上下文：{session facts}
-只返回指定 JSON
+prompts/zh/roles/
+  chat.md
+  ops.md
+  data.md
+  service.md
+  creative.md
+  engineering.md
+  accounting.md
+  design.md
+  web.md
+```
+
+Rust 代码不能硬编码大段 prompt。
+
+`src/roles/prompt.rs` 只负责：
+
+- 根据 `runtime_role` 选择 md 文件
+- 使用 `agent_utils::prompt::Prompt::load_from_repo(...)` 加载
+- 使用 `Prompt::render(...)` 渲染变量
+- 返回渲染后的 prompt
+
+允许的模板变量包括：
+
+```text
+{{role_name}}
+{{runtime_role}}
+{{required_capabilities}}
+{{optional_capabilities}}
+{{preferred_actions}}
+{{task}}
+{{facts}}
 ```
 
 旧 prompt_builder 只作为素材，不作为最终实现。
+
+如果以后新增 role，必须同时新增对应 md prompt 文件。
 
 ## 第六阶段 Support Roles 协作
 

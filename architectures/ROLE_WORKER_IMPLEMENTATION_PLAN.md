@@ -132,19 +132,7 @@ RoleProfile 是 Worker 的身份配置。
 
 ## Prompt 放在哪里
 
-第一阶段建议放在：
-
-```text
-src/roles/prompt.rs
-```
-
-原因：
-
-- 角色还在快速变化
-- Rust 单元测试更容易
-- 不需要处理文件路径、发布 include、热加载
-
-后续稳定后可以迁移到：
+Role prompt 必须放在 markdown 文件里：
 
 ```text
 prompts/zh/roles/
@@ -159,7 +147,25 @@ prompts/zh/roles/
   web.md
 ```
 
-第一版 `RolePrompt` 应该短，不要照搬 Python `prompt_builder.py`。
+`src/roles/prompt.rs` 只允许做加载、路径选择和模板渲染。
+
+禁止在 `src/roles/prompt.rs` 里写大段 prompt 文案。
+
+统一使用已有工具：
+
+```text
+agent_utils::prompt::Prompt
+```
+
+规则：
+
+- `Prompt::load_from_repo(...)` 加载 md 文件。
+- `Prompt::render(...)` 渲染 `{{key}}` 变量。
+- `Prompt::extract_json_schema()` 只用于需要 JSON schema 的 cognition prompt。
+- role prompt 可以不带 JSON schema，除非它直接作为 LLM system prompt 使用并需要 decoder。
+- Rust 代码里只保留 prompt 路径、变量名和 fallback 错误信息。
+
+第一版 role prompt 应该短，不要照搬 Python `prompt_builder.py`。
 
 建议结构：
 
@@ -182,7 +188,7 @@ prompts/zh/roles/
 
 ### Phase 1：RolePrompt
 
-新增：
+实现：
 
 ```text
 src/roles/prompt.rs
@@ -206,7 +212,21 @@ pub struct RolePromptBuilder;
 String
 ```
 
-第一阶段先返回简短系统 prompt。
+但输出内容必须来自：
+
+```text
+prompts/zh/roles/{runtime_role}.md
+```
+
+`RolePromptBuilder` 的职责是：
+
+```text
+RoleProfile + task + facts
+  -> 选择 md 文件
+  -> Prompt::load_from_repo
+  -> Prompt::render
+  -> String
+```
 
 ### Phase 2：Role-aware Worker
 
