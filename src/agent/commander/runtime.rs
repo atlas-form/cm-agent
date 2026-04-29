@@ -11,11 +11,11 @@ use crate::{
     core::{
         messaging::{MessageRx, MessageTx},
         protocol::{
-            AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, TaskSpec,
+            AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, TaskId, TaskSpec,
             WorkerId, WorkerProfile,
         },
     },
-    roles::{RoleRoute, RoleRouteInput, RoleRouter},
+    roles::{RoleCollaborationPlan, RoleRoute, RoleRouteInput, RoleRouter},
 };
 
 pub trait CommanderSessionContext: Send + Sync {
@@ -37,6 +37,11 @@ pub struct Commander {
     memory: TaskMemory,
     session_context: Arc<dyn CommanderSessionContext>,
     role_router: RoleRouter,
+    active_collaboration: Option<RoleCollaborationPlan>,
+    active_collaboration_task_id: Option<TaskId>,
+    pending_support_workers: Vec<WorkerId>,
+    completed_support_workers: Vec<WorkerId>,
+    collaboration_outputs: HashMap<WorkerId, String>,
 }
 
 impl Commander {
@@ -62,6 +67,11 @@ impl Commander {
             memory: TaskMemory::default(),
             session_context,
             role_router,
+            active_collaboration: None,
+            active_collaboration_task_id: None,
+            pending_support_workers: Vec::new(),
+            completed_support_workers: Vec::new(),
+            collaboration_outputs: HashMap::new(),
         }
     }
 
@@ -104,16 +114,28 @@ impl Commander {
                     },
                 ));
             }
-            Payload::WorkerReportFinished { worker_id, task_id } => {
+            Payload::WorkerReportFinished {
+                worker_id,
+                task_id,
+                output,
+            } => {
                 self.memory
                     .push_progress(format!("worker {} finished {}", worker_id.0, task_id.0));
+                if self.handle_collaboration_worker_finished(
+                    &worker_id,
+                    &task_id,
+                    output.as_deref(),
+                    &context,
+                ) {
+                    return;
+                }
                 let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     context,
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
-                        content: format!("任务已完成: {}", task_id.0),
+                        content: final_worker_message(&task_id, output.as_deref()),
                     },
                 ));
                 self.phase = CommanderPhase::Idle;
@@ -156,6 +178,11 @@ impl Commander {
         };
 
         self.memory.clear();
+        self.active_collaboration = None;
+        self.active_collaboration_task_id = None;
+        self.pending_support_workers.clear();
+        self.completed_support_workers.clear();
+        self.collaboration_outputs.clear();
         self.memory.push_progress("human command received");
         self.memory
             .set_state("incoming_task_id", incoming_task.id.clone());
@@ -191,6 +218,7 @@ impl Commander {
                 let target_worker = routed
                     .target_worker_id
                     .or_else(|| role_route.as_ref().map(primary_worker_id));
+                self.prepare_collaboration(role_route.as_ref(), target_worker.as_ref());
                 if !self.dispatch_task_to_worker(task, target_worker) {
                     let _ = self.sender.send(Message::new_with_context(
                         next_message_id(),
@@ -283,6 +311,175 @@ impl Commander {
             },
         );
         worker_tx.send(task_message).is_ok()
+    }
+
+    fn prepare_collaboration(
+        &mut self,
+        role_route: Option<&RoleRoute>,
+        target_worker: Option<&WorkerId>,
+    ) {
+        let Some(role_route) = role_route else {
+            return;
+        };
+        let plan = RoleCollaborationPlan::from_route(role_route);
+        if target_worker != Some(&plan.primary.worker_id) {
+            return;
+        }
+
+        self.memory.set_state(
+            "role_route.primary_runtime_role",
+            plan.primary.runtime_role.clone(),
+        );
+        self.memory.set_state(
+            "role_route.support_runtime_roles",
+            plan.support
+                .iter()
+                .map(|role| role.runtime_role.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        self.active_collaboration = Some(plan);
+        self.active_collaboration_task_id = None;
+        self.pending_support_workers.clear();
+        self.completed_support_workers.clear();
+        self.collaboration_outputs.clear();
+    }
+
+    fn handle_collaboration_worker_finished(
+        &mut self,
+        worker_id: &WorkerId,
+        task_id: &TaskId,
+        output: Option<&str>,
+        context: &MessageContext,
+    ) -> bool {
+        let Some(plan) = self.active_collaboration.clone() else {
+            return false;
+        };
+
+        if worker_id == &plan.primary.worker_id && !plan.support.is_empty() {
+            self.active_collaboration_task_id = Some(task_id.clone());
+            if let Some(output) = output {
+                self.collaboration_outputs
+                    .insert(worker_id.clone(), output.to_string());
+            }
+            self.dispatch_support_workers(&plan, task_id);
+            return true;
+        }
+
+        if self
+            .pending_support_workers
+            .iter()
+            .any(|item| item == worker_id)
+        {
+            self.pending_support_workers
+                .retain(|item| item != worker_id);
+            self.completed_support_workers.push(worker_id.clone());
+            if let Some(output) = output {
+                self.collaboration_outputs
+                    .insert(worker_id.clone(), output.to_string());
+            }
+            if self.pending_support_workers.is_empty() {
+                let primary_task_id = self
+                    .active_collaboration_task_id
+                    .clone()
+                    .unwrap_or_else(|| task_id.clone());
+                self.send_collaboration_done(context, &primary_task_id);
+            }
+            return true;
+        }
+
+        false
+    }
+
+    fn dispatch_support_workers(&mut self, plan: &RoleCollaborationPlan, primary_task_id: &TaskId) {
+        self.pending_support_workers = plan
+            .support
+            .iter()
+            .map(|assignment| assignment.worker_id.clone())
+            .collect();
+
+        let mut dispatched = Vec::new();
+        for assignment in &plan.support {
+            let task = TaskSpec {
+                id: TaskId(format!(
+                    "{}:support:{}",
+                    primary_task_id.0, assignment.runtime_role
+                )),
+                description: format!(
+                    "作为{}支持角色，基于主角色结果补充本岗位判断。",
+                    assignment.runtime_role
+                ),
+            };
+            if self.dispatch_task_to_worker(task, Some(assignment.worker_id.clone())) {
+                dispatched.push(assignment.worker_id.clone());
+            }
+        }
+
+        self.pending_support_workers
+            .retain(|worker_id| dispatched.iter().any(|item| item == worker_id));
+        if self.pending_support_workers.is_empty() {
+            let context = self.current_context.clone();
+            self.send_collaboration_done(&context, primary_task_id);
+        }
+    }
+
+    fn send_collaboration_done(&mut self, context: &MessageContext, task_id: &TaskId) {
+        let support_workers = self
+            .completed_support_workers
+            .iter()
+            .map(|worker| worker.0.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let content = if support_workers.is_empty() {
+            self.active_collaboration
+                .as_ref()
+                .and_then(|plan| self.collaboration_outputs.get(&plan.primary.worker_id))
+                .cloned()
+                .unwrap_or_else(|| format!("任务已完成: {}", task_id.0))
+        } else {
+            format!(
+                "任务已完成: {}；支持角色已完成: {}\n\n{}",
+                task_id.0,
+                support_workers,
+                self.format_collaboration_outputs()
+            )
+        };
+        let _ = self.sender.send(Message::new_with_context(
+            next_message_id(),
+            context.clone(),
+            self.id.clone(),
+            self.world_id.clone(),
+            Payload::Text { content },
+        ));
+        self.active_collaboration = None;
+        self.active_collaboration_task_id = None;
+        self.pending_support_workers.clear();
+        self.completed_support_workers.clear();
+        self.collaboration_outputs.clear();
+        self.phase = CommanderPhase::Idle;
+        self.state = CommanderState::Idle;
+    }
+
+    fn format_collaboration_outputs(&self) -> String {
+        let Some(plan) = &self.active_collaboration else {
+            return "角色贡献：none".to_string();
+        };
+
+        let mut lines = Vec::new();
+        if let Some(output) = self.collaboration_outputs.get(&plan.primary.worker_id) {
+            lines.push(format!("primary {}: {}", plan.primary.runtime_role, output));
+        }
+        for assignment in &plan.support {
+            if let Some(output) = self.collaboration_outputs.get(&assignment.worker_id) {
+                lines.push(format!("support {}: {}", assignment.runtime_role, output));
+            }
+        }
+
+        if lines.is_empty() {
+            "角色贡献：none".to_string()
+        } else {
+            format!("角色贡献：\n{}", lines.join("\n"))
+        }
     }
 
     fn build_cognition_input(&self, role_route: Option<&RoleRoute>) -> CognitionInput {
@@ -388,6 +585,13 @@ impl Commander {
 
 fn primary_worker_id(role_route: &RoleRoute) -> WorkerId {
     WorkerId(format!("worker.{}", role_route.primary_runtime_role))
+}
+
+fn final_worker_message(task_id: &TaskId, output: Option<&str>) -> String {
+    output
+        .filter(|value| !value.trim().is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("任务已完成: {}", task_id.0))
 }
 
 fn next_message_id() -> MessageId {

@@ -167,6 +167,13 @@ src/agent
   Commander
   Worker
 
+src/roles
+  RoleProfile
+  RoleCatalog
+  RoleRouter
+  RolePrompt
+  RoleCollaborationPlan
+
 src/core
   Message
   Payload
@@ -180,11 +187,54 @@ src/core
 
 `app` / `agent-ui` 已删除，不作为库的一部分。
 
-本地测试入口放在：
+本地 web 使用示例放在：
 
 ```text
-src/bin/smoke.rs
+src/bin/web_request_example.rs
+src/bin/web_stream_example.rs
 ```
+
+## 默认 Roles
+
+这个项目不是通用空 agent 框架。
+
+library 初始化时默认带业务角色：
+
+```text
+ops
+data
+service
+creative
+engineering
+accounting
+design
+web
+```
+
+每个 `AgentSession` 启动时，`SessionRuntime` 会按 `RoleCatalog` 创建一组 session 内短生命 Worker：
+
+```text
+worker.ops
+worker.data
+worker.service
+worker.creative
+worker.engineering
+worker.accounting
+worker.design
+worker.web
+```
+
+`RoleProfile` 只描述角色身份、能力、关键词和偏好动作。
+
+真正执行的是：
+
+```text
+Worker + RoleProfile + RolePrompt + Cognition
+```
+
+`Commander` 使用 `RoleRouter` 选择 primary role 和 support roles。
+
+primary role 先执行，support roles 后续并发补充，最后由 Commander 汇总角色贡献。
 
 ## 与 Python pipeline 的区别
 

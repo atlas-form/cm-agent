@@ -140,6 +140,8 @@ impl Worker {
 
         match self.cognition.evaluate(input).await {
             CognitionResult::Success(output) => {
+                self.memory
+                    .set_state("last_cognition_output", output.to_string());
                 if let Some(action) = decision_to_action(&output) {
                     self.current_action = Some(action);
                     self.phase = WorkerPhase::Acting;
@@ -203,6 +205,7 @@ impl Worker {
             payload: Payload::WorkerReportFinished {
                 worker_id: WorkerId(self.id.0.clone()),
                 task_id: TaskId(task.id),
+                output: self.memory.state.get("last_cognition_output").cloned(),
             },
         });
         self.phase = WorkerPhase::Thinking;

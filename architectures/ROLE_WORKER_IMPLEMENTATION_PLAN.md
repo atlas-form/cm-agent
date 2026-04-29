@@ -39,9 +39,17 @@ worker.service
 ...
 ```
 
-这些目前只是 worker profile。
+这些已经不是单纯 worker profile。
 
-真实执行仍然是同一个通用 Worker loop。
+当前实现是：
+
+- `SessionRuntime` 会为每个 role 启动一个短生命 Worker loop。
+- `Worker` 持有 `RoleProfile`。
+- `Worker` cognition context 会带上 `role.id` / `role.name` / `role.runtime_role`。
+- `Worker` cognition context 会带上 `RolePromptBuilder` 生成的 role prompt。
+- `AgentManagerConfig::new_role_aware(...)` 可以按 role 创建不同 worker cognition。
+- Worker 完成后会把 cognition output 作为角色贡献回传给 Commander。
+- Commander 可以先派 primary role，再派 support roles，并汇总贡献。
 
 ## 目标结构
 
@@ -105,7 +113,7 @@ src/agent/worker/
   action_bridge.rs action 映射
 ```
 
-后续在这里增加 role-aware 能力：
+当前 Worker 已经具备 role-aware 能力：
 
 ```text
 Worker {
@@ -242,15 +250,7 @@ AgentId(format!("worker.{}", role.runtime_role))
 
 ### Phase 3：SessionRuntime 多 Worker
 
-当前 SessionRuntime 只有：
-
-```text
-one worker_rx
-one worker_tx
-one worker_loop
-```
-
-下一步要变成：
+当前已经是：
 
 ```text
 worker_channels: HashMap<WorkerId, MessageTx>
@@ -277,9 +277,9 @@ worker.creative
 
 就是真正不同的 Worker task。
 
-第一阶段这些 Worker 可以共用同一个 `worker_cognition` factory。
+默认兼容旧的 `worker_cognition` factory。
 
-下一阶段再做 role-specific cognition。
+需要按角色区分时，使用 `RoleCognitionFactory`。
 
 ### Phase 4：Role-specific Cognition
 
@@ -289,7 +289,7 @@ worker.creative
 pub worker_cognition: CognitionFactory
 ```
 
-后续要改成：
+已经支持：
 
 ```rust
 pub worker_cognition: RoleCognitionFactory
@@ -309,7 +309,7 @@ worker.ops -> ops prompt
 worker.data -> data prompt
 ```
 
-第一阶段为了不破坏太多，可以先保留旧 factory，同时新增适配：
+为了兼容简单使用方式，旧 factory 仍然保留，并自动适配到 role-aware factory：
 
 ```text
 旧：Fn() -> Cognition
@@ -332,15 +332,13 @@ RoleRouter::route(message)
   -> support_roles
 ```
 
-第一版只使用 primary role：
+当前已支持：
 
 ```text
 dispatch task to worker.{primary_role}
+primary done -> dispatch support roles
+support done -> Commander 汇总角色贡献
 ```
-
-support roles 先存入 Commander memory/context。
-
-后续再做并发协作。
 
 ### Phase 6：Support Roles
 
@@ -353,7 +351,9 @@ Commander 收到 primary WorkerReportFinished
   -> synthesize final output
 ```
 
-这个阶段才迁移 Python `multi_agent.py` 的核心语义。
+这个阶段已经落地第一版。
+
+还没有做 token 级 streaming contribution，也没有做复杂最终 synthesis。
 
 ## 不要做的事
 
@@ -382,7 +382,7 @@ src/agent/roles/data.rs
 
 ## 最小落地顺序
 
-建议下一步按这个顺序写代码：
+已完成：
 
 1. `src/roles/prompt.rs`
 2. `RolePromptBuilder` 单元测试
@@ -392,6 +392,17 @@ src/agent/roles/data.rs
 6. 更新 web examples / tests
 7. `RoleRouter`
 8. Commander 使用 RoleRouter 派发 primary role
+9. Commander 派发 support roles
+10. Worker 输出作为 role contribution 回流
+
+下一步如果继续 role 方向，应该做：
+
+```text
+role contribution schema
+collaboration SSE events
+final synthesis prompt
+role-specific LLM smoke example
+```
 
 ## 核心判断
 

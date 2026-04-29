@@ -15,7 +15,7 @@ pub use crate::{
     },
     core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
     roles::{
-        RoleAction, RoleCatalog, RoleId, RoleProfile, RolePromptBuilder, RolePromptInput,
-        RoleRoute, RoleRouteInput, RoleRouter, RoleScore,
+        RoleAction, RoleAssignment, RoleCatalog, RoleCollaborationPlan, RoleId, RoleProfile,
+        RolePromptBuilder, RolePromptInput, RoleRoute, RoleRouteInput, RoleRouter, RoleScore,
     },
 };

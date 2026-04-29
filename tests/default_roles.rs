@@ -114,6 +114,28 @@ impl Cognition for CapturingWorkerCognition {
     }
 }
 
+struct CapturingWorkerSetCognition {
+    runtime_roles: Arc<Mutex<HashSet<String>>>,
+}
+
+#[async_trait]
+impl Cognition for CapturingWorkerSetCognition {
+    async fn evaluate(&self, input: CognitionInput) -> CognitionResult {
+        if let Some(runtime_role) = input.context.metadata.get("role.runtime_role") {
+            self.runtime_roles
+                .lock()
+                .expect("lock role set capture")
+                .insert(runtime_role.clone());
+        }
+
+        CognitionResult::Success(json!({
+            "decision": {
+                "kind": "NoAction"
+            }
+        }))
+    }
+}
+
 #[tokio::test]
 async fn manager_initializes_builtin_roles_for_each_session() {
     let available_workers = Arc::new(Mutex::new(None));
@@ -240,7 +262,7 @@ async fn commander_uses_role_router_when_target_worker_is_missing() {
             workspace_id: None,
             agent_id: AgentId("role-agent".to_string()),
             session_id: SessionId("role-session-router".to_string()),
-            input: "帮我分析漏斗指标和转化率下降原因".to_string(),
+            input: "帮我分析漏斗指标和归因口径".to_string(),
         })
         .await
         .expect("request should complete");
@@ -249,4 +271,36 @@ async fn commander_uses_role_router_when_target_worker_is_missing() {
         runtime_role.lock().expect("lock role capture").as_deref(),
         Some("data")
     );
+}
+
+#[tokio::test]
+async fn commander_dispatches_support_roles_after_primary_role() {
+    let runtime_roles = Arc::new(Mutex::new(HashSet::new()));
+    let worker_capture = Arc::clone(&runtime_roles);
+    let manager = AgentManager::new(AgentManagerConfig::new(
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
+        Arc::new(move || {
+            Ok(Box::new(CapturingWorkerSetCognition {
+                runtime_roles: Arc::clone(&worker_capture),
+            }))
+        }),
+    ));
+
+    let result = manager
+        .run_request(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-support".to_string()),
+            input: "帮我分析数据指标归因漏斗，并写一版直播脚本文案".to_string(),
+        })
+        .await
+        .expect("request should complete");
+
+    let runtime_roles = runtime_roles.lock().expect("lock role set capture");
+    assert!(runtime_roles.contains("data"));
+    assert!(runtime_roles.contains("creative"));
+    assert!(result.output.contains("支持角色已完成"));
+    assert!(result.output.contains("primary data"));
+    assert!(result.output.contains("support creative"));
 }

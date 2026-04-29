@@ -23,6 +23,7 @@ pub struct RoleRoute {
     pub primary_role: RoleId,
     pub primary_runtime_role: String,
     pub support_roles: Vec<RoleId>,
+    pub support_runtime_roles: Vec<String>,
     pub scores: Vec<RoleScore>,
 }
 
@@ -87,11 +88,18 @@ impl RoleRouter {
             .take(max_roles.saturating_sub(1))
             .map(|score| score.role_id.clone())
             .collect::<Vec<_>>();
+        let support_runtime_roles = scored
+            .iter()
+            .filter(|score| score.role_id != primary.role_id && score.score > 0.0)
+            .take(max_roles.saturating_sub(1))
+            .map(|score| score.runtime_role.clone())
+            .collect::<Vec<_>>();
 
         RoleRoute {
             primary_role: primary.role_id.clone(),
             primary_runtime_role: primary.runtime_role.clone(),
             support_roles,
+            support_runtime_roles,
             scores: scored,
         }
     }
@@ -115,20 +123,22 @@ fn score_role(
         .filter(|keyword| message.contains(&keyword.to_lowercase()))
         .count();
     let keyword_score = keyword_hits as f32 * 2.0;
-    let domain_score = if role.domains.iter().any(|domain| domain == domain_id) {
-        0.5
-    } else {
-        0.0
-    };
     let action_score = action
         .filter(|action| role.preferred_actions.iter().any(|item| item == *action))
         .map(|_| 1.0)
         .unwrap_or(0.0);
+    let signal_score = keyword_score + action_score;
+    let domain_score =
+        if signal_score > 0.0 && role.domains.iter().any(|domain| domain == domain_id) {
+            0.5
+        } else {
+            0.0
+        };
 
     RoleScore {
         role_id: role.id.clone(),
         runtime_role: role.runtime_role.clone(),
-        score: keyword_score + domain_score + action_score,
+        score: signal_score + domain_score,
         keyword_hits,
     }
 }

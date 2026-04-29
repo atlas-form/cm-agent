@@ -6,6 +6,26 @@
 
 目标不是照搬 Python pipeline，而是把旧项目中的岗位能力、路由规则、协作语义补到 Rust agent 骨架里。
 
+## 当前落地状态
+
+已完成：
+
+- `src/roles` 已建立。
+- 内置 8 个 role profile 已接入默认 `AgentManagerConfig`。
+- 每个 session 会启动一组短生命 role workers。
+- `Commander` 已接入 `RoleRouter`，可以选择 primary/support roles。
+- `Worker` 已持有 `RoleProfile`，并在 cognition context 中注入 role 信息和 role prompt。
+- `RoleCognitionFactory` 已支持按 role 创建 worker cognition。
+- primary role 完成后，Commander 可以调度 support roles。
+- Worker cognition 输出会作为角色贡献回流给 Commander。
+
+未做：
+
+- skill/tool 系统。
+- 复杂长期 memory。
+- 质量重试、trust scorer、proactive engine。
+- token 级 role 输出流。
+
 ## 旧代码判断
 
 Python 旧项目里真正有价值的 agent 内容主要在：
@@ -147,9 +167,9 @@ Commander 收到 HumanCommand
   -> 派发给对应 Worker
 ```
 
-第一阶段可以只派发 primary role。
+当前已经不只派发 primary role。
 
-support roles 先作为 `RoleRoute` 结果保存到 context，不立刻执行。
+primary role 完成后，Commander 会按 `RoleRoute` 里的 support roles 派发补充任务。
 
 ## 第四阶段 Worker Role 化
 
@@ -191,7 +211,7 @@ SessionRuntime 启动时，根据 RoleCatalog 注册多个 worker profile。
 
 ## 第六阶段 Support Roles 协作
 
-旧 Python `multi_agent.py` 的核心语义可以保留：
+旧 Python `multi_agent.py` 的核心语义已经保留第一版：
 
 ```text
 primary role 先完成
@@ -199,14 +219,14 @@ support roles 并发补充
 最后合并贡献
 ```
 
-但 Rust 里应该由 Commander 编排：
+Rust 里由 Commander 编排：
 
 ```text
 Commander
   -> dispatch primary Worker
   -> collect primary output
   -> dispatch support Workers concurrently
-  -> collect AgentContribution
+  -> collect role contribution
   -> synthesize final output
 ```
 

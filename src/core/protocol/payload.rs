@@ -36,6 +36,7 @@ pub enum Payload {
     WorkerReportFinished {
         worker_id: WorkerId,
         task_id: TaskId,
+        output: Option<String>,
     },
     WorkerReportFailed {
         worker_id: WorkerId,
