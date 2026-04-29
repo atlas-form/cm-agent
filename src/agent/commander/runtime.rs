@@ -16,8 +16,8 @@ use crate::{
         },
     },
     roles::{
-        RoleAssignment, RoleCollaborationPlan, RoleContribution, RoleRoute, RoleRouteInput,
-        RoleRouter,
+        FinalSynthesisPromptInput, RoleAssignment, RoleCollaborationPlan, RoleContribution,
+        RolePromptBuilder, RoleRoute, RoleRouteInput, RoleRouter,
     },
 };
 
@@ -546,12 +546,36 @@ impl Commander {
     }
 
     fn synthesize_collaboration_output(&self, task_id: &TaskId, support_workers: &str) -> String {
-        format!(
-            "任务已完成: {}；支持角色已完成: {}\n\n{}",
-            task_id.0,
-            support_workers,
-            self.format_collaboration_outputs()
-        )
+        let task = self
+            .current_task
+            .as_ref()
+            .map(|task| task.description.clone())
+            .unwrap_or_default();
+        let Some(plan) = &self.active_collaboration else {
+            return RolePromptBuilder::build_final_synthesis_prompt(&FinalSynthesisPromptInput {
+                task_id: task_id.clone(),
+                task,
+                support_workers: support_workers.to_string(),
+                contributions: Vec::new(),
+            });
+        };
+
+        let mut contributions = Vec::new();
+        if let Some(contribution) = self.collaboration_outputs.get(&plan.primary.worker_id) {
+            contributions.push(contribution.clone());
+        }
+        for assignment in &plan.support {
+            if let Some(contribution) = self.collaboration_outputs.get(&assignment.worker_id) {
+                contributions.push(contribution.clone());
+            }
+        }
+
+        RolePromptBuilder::build_final_synthesis_prompt(&FinalSynthesisPromptInput {
+            task_id: task_id.clone(),
+            task,
+            support_workers: support_workers.to_string(),
+            contributions,
+        })
     }
 
     fn is_collaboration_worker(&self, worker_id: &WorkerId) -> bool {

@@ -19,6 +19,7 @@
 - primary role 完成后，Commander 可以调度 support roles。
 - Worker cognition 输出会作为 `RoleContribution` 回流给 Commander。
 - role 协作过程会输出 `SessionEvent`，web server 可以映射成 SSE。
+- final synthesis 已经通过 `prompts/zh/cognition/final_synthesis.md` 模板渲染。
 
 未做：
 
@@ -26,7 +27,7 @@
 - 复杂长期 memory。
 - 质量重试、trust scorer、proactive engine。
 - token 级 role 输出流。
-- 复杂最终 synthesis。
+- LLM 驱动的复杂最终 synthesis。
 
 ## 旧代码判断
 

@@ -1,12 +1,24 @@
 use std::path::PathBuf;
 
-use crate::{agent_utils::prompt::Prompt, roles::RoleProfile};
+use crate::{
+    agent_utils::prompt::Prompt,
+    core::protocol::TaskId,
+    roles::{RoleContribution, RoleProfile},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RolePromptInput {
     pub role: RoleProfile,
     pub task: String,
     pub facts: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinalSynthesisPromptInput {
+    pub task_id: TaskId,
+    pub task: String,
+    pub support_workers: String,
+    pub contributions: Vec<RoleContribution>,
 }
 
 pub struct RolePromptBuilder;
@@ -25,6 +37,41 @@ impl RolePromptBuilder {
             .join("zh")
             .join("roles")
             .join(format!("{}.md", safe_runtime_role(&role.runtime_role)))
+    }
+
+    pub fn final_synthesis_prompt_path() -> PathBuf {
+        PathBuf::from("prompts")
+            .join("zh")
+            .join("cognition")
+            .join("final_synthesis.md")
+    }
+
+    pub fn build_final_synthesis_prompt(input: &FinalSynthesisPromptInput) -> String {
+        let prompt_path = Self::final_synthesis_prompt_path();
+        let prompt = match Prompt::load_from_repo(&prompt_path) {
+            Ok(prompt) => prompt,
+            Err(err) => {
+                return format!(
+                    "final_synthesis_prompt_unavailable\npath: {}\nerror: {}",
+                    prompt_path.display(),
+                    err
+                );
+            }
+        };
+
+        prompt.render(&[
+            ("task_id", input.task_id.0.clone()),
+            (
+                "task",
+                if input.task.trim().is_empty() {
+                    "none".to_string()
+                } else {
+                    input.task.clone()
+                },
+            ),
+            ("support_workers", input.support_workers.clone()),
+            ("contributions", format_contributions(&input.contributions)),
+        ])
     }
 
     fn render_role_prompt(role: &RoleProfile, task: &str, facts: &[String]) -> String {
@@ -81,6 +128,29 @@ fn role_actions(role: &RoleProfile) -> String {
     join_or_none(&actions)
 }
 
+fn format_contributions(contributions: &[RoleContribution]) -> String {
+    if contributions.is_empty() {
+        return "none".to_string();
+    }
+
+    contributions
+        .iter()
+        .enumerate()
+        .map(|(index, contribution)| {
+            let label = if index == 0 { "primary" } else { "support" };
+            format!(
+                "- {} {} ({}) [{}]: {}",
+                label,
+                contribution.runtime_role,
+                contribution.worker_id.0,
+                contribution.task_id.0,
+                contribution.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn join_or_none(values: &[String]) -> String {
     if values.is_empty() {
         "none".to_string()
@@ -91,8 +161,11 @@ fn join_or_none(values: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{RolePromptBuilder, RolePromptInput};
-    use crate::roles::RoleCatalog;
+    use super::{FinalSynthesisPromptInput, RolePromptBuilder, RolePromptInput};
+    use crate::{
+        core::protocol::{TaskId, WorkerId},
+        roles::{RoleCatalog, RoleContribution, RoleId},
+    };
 
     #[test]
     fn builds_prompt_with_role_identity() {
@@ -143,5 +216,27 @@ mod tests {
         let path = RolePromptBuilder::prompt_path_for(&role);
 
         assert_eq!(path.to_string_lossy(), "prompts/zh/roles/chat.md");
+    }
+
+    #[test]
+    fn builds_final_synthesis_prompt_from_markdown() {
+        let prompt = RolePromptBuilder::build_final_synthesis_prompt(&FinalSynthesisPromptInput {
+            task_id: TaskId("task-1".to_string()),
+            task: "分析数据并写文案".to_string(),
+            support_workers: "worker.creative".to_string(),
+            contributions: vec![RoleContribution {
+                role_id: RoleId("role.data-analyst".to_string()),
+                runtime_role: "data".to_string(),
+                worker_id: WorkerId("worker.data".to_string()),
+                task_id: TaskId("task-1".to_string()),
+                content: "数据贡献".to_string(),
+                confidence: None,
+                needs_follow_up: false,
+            }],
+        });
+
+        assert!(prompt.contains("prompt_source: prompts/zh/cognition/final_synthesis.md"));
+        assert!(prompt.contains("分析数据并写文案"));
+        assert!(prompt.contains("数据贡献"));
     }
 }

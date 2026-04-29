@@ -1,0 +1,16 @@
+# Final Synthesis Template
+
+prompt_source: prompts/zh/cognition/final_synthesis.md
+
+任务已完成: {{task_id}}；支持角色已完成: {{support_workers}}
+
+用户任务：
+{{task}}
+
+最终汇总：
+{{contributions}}
+
+输出边界：
+- 汇总只基于上面的角色贡献。
+- 不补充角色没有提供的数据、外部查询结果或执行结果。
+- 如果角色贡献不足以形成结论，保留缺口说明。

@@ -378,7 +378,15 @@ Commander 收到 primary WorkerReportFinished
 
 这个阶段已经落地第一版。
 
-还没有做 token 级 streaming contribution，也没有做复杂最终 synthesis。
+final synthesis prompt 已经放到：
+
+```text
+prompts/zh/cognition/final_synthesis.md
+```
+
+当前是 md 模板渲染版本，还没有做 LLM 驱动的复杂最终 synthesis。
+
+还没有做 token 级 streaming contribution。
 
 ## 不要做的事
 
@@ -419,11 +427,11 @@ src/agent/roles/data.rs
 8. Commander 使用 RoleRouter 派发 primary role
 9. Commander 派发 support roles
 10. Worker 输出作为 role contribution 回流
+11. final synthesis prompt md 模板
 
 下一步如果继续 role 方向，应该做：
 
 ```text
-final synthesis prompt
 role-specific LLM smoke example
 ```
 
