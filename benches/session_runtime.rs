@@ -19,7 +19,7 @@ impl Cognition for CommanderBenchCognition {
             "decision": {
                 "kind": "RouteTask",
                 "route": {
-                    "target_agent_id": "worker-1",
+                    "target_agent_id": "worker.ops",
                     "task_summary": "benchmark request",
                     "goal": "finish one isolated request",
                     "constraints": []

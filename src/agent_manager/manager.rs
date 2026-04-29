@@ -13,11 +13,13 @@ use crate::{
         NoopMemoryStore, SessionEventRx, SessionResult, SessionRuntimeConfig,
     },
     core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
+    roles::RoleCatalog,
 };
 
 #[derive(Clone)]
 pub struct AgentManagerConfig {
     pub runtime: SessionRuntimeConfig,
+    pub roles: RoleCatalog,
     pub commander_cognition: CognitionFactory,
     pub worker_cognition: CognitionFactory,
     pub memory_store: Arc<dyn MemoryStore>,
@@ -27,6 +29,7 @@ impl AgentManagerConfig {
     pub fn new(commander_cognition: CognitionFactory, worker_cognition: CognitionFactory) -> Self {
         Self {
             runtime: SessionRuntimeConfig::default(),
+            roles: RoleCatalog::builtin(),
             commander_cognition,
             worker_cognition,
             memory_store: Arc::new(NoopMemoryStore),
@@ -103,6 +106,9 @@ impl AgentManager {
     }
 
     fn create_session(&self, request: &AgentRequest) -> AgentSession {
+        let mut runtime = self.config.runtime.clone();
+        runtime.worker_profiles = self.config.roles.to_worker_profiles();
+
         AgentSession::new(
             AgentSessionScope {
                 user_id: request.user_id.clone(),
@@ -111,7 +117,7 @@ impl AgentManager {
                 session_id: request.session_id.clone(),
             },
             AgentSessionConfig {
-                runtime: self.config.runtime.clone(),
+                runtime,
                 commander_cognition: self.config.commander_cognition.clone(),
                 worker_cognition: self.config.worker_cognition.clone(),
                 memory_store: self.config.memory_store.clone(),

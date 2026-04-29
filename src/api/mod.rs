@@ -14,4 +14,5 @@ pub use crate::{
         CognitionResult, Context, Fact, FailureReason, Intent, IntentKind, JsonTemplateDecoder,
     },
     core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
+    roles::{RoleAction, RoleCatalog, RoleId, RoleProfile},
 };

@@ -16,7 +16,7 @@ impl Cognition for TestCommanderCognition {
             "decision": {
                 "kind": "RouteTask",
                 "route": {
-                    "target_agent_id": "worker-1",
+                    "target_agent_id": "worker.ops",
                     "task_summary": "stream integration",
                     "goal": "finish stream integration",
                     "constraints": []

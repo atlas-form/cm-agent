@@ -33,13 +33,13 @@ impl Cognition for ExampleCommanderCognition {
             "decision": {
                 "kind": "RouteTask",
                 "route": {
-                    "target_agent_id": "worker-1",
+                    "target_agent_id": "worker.ops",
                     "task_summary": input.intent.description,
                     "goal": "finish the web API example request",
                     "constraints": []
                 },
                 "handoff": {
-                    "why_this_agent": "worker-1 is the default general worker",
+                    "why_this_agent": "worker.ops is the default operations role worker",
                     "expected_output": "done"
                 },
                 "clarification": {

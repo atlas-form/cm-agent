@@ -20,6 +20,8 @@ pub(crate) mod cognition;
 pub(crate) mod core;
 #[path = "perception/lib.rs"]
 pub(crate) mod perception;
+#[path = "roles/lib.rs"]
+pub(crate) mod roles;
 
 pub(crate) use core::{messaging, messaging::*, protocol, protocol::*};
 
@@ -42,4 +44,5 @@ pub(crate) use perception::{
     Modality, Percept, PerceptContent, Perception, PerceptionOutput, Signal, Stimulus,
     StimulusSpan, TextUtterancePerception,
 };
+pub(crate) use roles::{RoleAction, RoleCatalog, RoleId, RoleProfile};
 pub extern crate tracing;
