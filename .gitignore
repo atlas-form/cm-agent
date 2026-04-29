@@ -1,0 +1,7 @@
+/target
+
+#MacOS
+.DS_Store
+
+.claude
+.codex

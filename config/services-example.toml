@@ -1,0 +1,17 @@
+[[llms]]
+profile = "default"
+usage = "cognition"
+base_url = "http://10.100.11.245:11434"
+model = "gpt-oss:20b"
+api_key = ""
+max_tokens = 1024
+temperature = 0.0
+
+[[llms]]
+profile = "fast"
+usage = "chat"
+base_url = "http://10.100.11.245:11434"
+model = "gpt-oss:20b"
+api_key = ""
+max_tokens = 512
+temperature = 0.2

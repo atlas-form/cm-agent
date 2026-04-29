@@ -1,0 +1,10 @@
+[package]
+name = "world"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+agent-core = { package = "core", path = "../core" }
+agent-llm = { workspace = true }

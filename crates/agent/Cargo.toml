@@ -1,0 +1,21 @@
+[package]
+name = "agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+action = { path = "../action" }
+cognition = { path = "../cognition" }
+futures = "0.3"
+agent-core = { package = "core", path = "../core" }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+world = { path = "../world" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+agent-utils = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,18 @@
+[package]
+name = "cognition"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+agent-error = { workspace = true }
+agent-utils = { workspace = true }
+agent-llm = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+toolcraft-request = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+toolcraft-request = { workspace = true }

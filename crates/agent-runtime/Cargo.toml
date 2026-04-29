@@ -1,0 +1,14 @@
+[package]
+name = "agent-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+agent = { workspace = true }
+action = { workspace = true }
+perception = { workspace = true }
+cognition = { workspace = true }
+agent-error = { workspace = true }
+tracing = { workspace = true }
