@@ -31,15 +31,6 @@ AgentManager
 
 ```text
 RoleRoute
-  -> primary worker
-  -> support workers
-  -> final synthesis
-```
-
-下一阶段目标：
-
-```text
-RoleRoute
   -> TaskGraph
   -> Scheduler
   -> WorkerAssignment
@@ -48,26 +39,36 @@ RoleRoute
   -> Final Synthesis
 ```
 
-## Priority 1: TaskGraph Runtime
+下一阶段目标：
+
+```text
+TaskGraph Runtime
+  -> Structured RoleWorkOutput
+  -> WorkerReport upgrade
+  -> Role-specific Prompts
+  -> Role-aware Evaluation
+  -> Role-aware Final Synthesis
+```
+
+## Priority 1: Role Design + Role Contract
 
 详细计划见：
 
-- `ROLE_PHASE_2_TASK_GRAPH_PLAN.md`
+- `ROLE_PHASE_3_ROLE_DESIGN_PLAN.md`
 
-这是下一阶段主线。
+这是第三阶段主线。
 
 先做：
 
-1. 定义 TaskGraph 类型。
-2. 新增 `Payload::WorkerAssignment` 和 `Payload::WorkerReport`。
-3. 实现规则版 planner。
-4. 实现 scheduler。
-5. 实现 deterministic evaluator。
-6. 改 Worker 接收结构化 assignment。
-7. 改 Commander 驱动 TaskGraph。
-8. 补单节点、串行、并行、返工、失败降级测试。
+1. 定义 `RoleWorkOutput`。
+2. 扩展 `WorkerReport`。
+3. 修改 worker 输出解析。
+4. 修改 role prompts 和 worker cognition prompt。
+5. 改 evaluator，加入 role-specific checks。
+6. 改 final synthesis，展示 role 贡献、建议、风险和缺口。
+7. 补结构化输出、上游证据、角色差异和质量检查测试。
 
-完成后，旧的 primary/support collaboration 可以作为兼容层或删除。
+完成后，再进入 skill/tool/action 阶段。
 
 ## Priority 2: Streaming Follow-up
 
@@ -94,7 +95,7 @@ RoleRoute
 - session restore。
 - 长任务后台状态查询。
 
-这些应在 TaskGraph runtime 稳定后再做，避免 manager 先承载过多未定行为。
+这些应在 role contract 稳定后再做，避免 manager 先承载过多未定行为。
 
 ## Priority 4: Naming Cleanup
 
@@ -108,7 +109,8 @@ RoleRoute
 
 下一阶段仍然不做：
 
-- skill/tool 系统
+- skill/tool/action 系统
+- 完整 skill marketplace
 - 数据库 memory
 - approval workflow
 - distributed scheduler

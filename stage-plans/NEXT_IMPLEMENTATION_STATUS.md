@@ -8,134 +8,102 @@
 
 详细主线：
 
-- `ROLE_PHASE_2_TASK_GRAPH_PLAN.md`
+- `ROLE_PHASE_3_ROLE_DESIGN_PLAN.md`
 
 ## 当前阶段
 
 当前阶段名称：
 
 ```text
-Role Phase 2: TaskGraph Multi-Agent Runtime
+Role Phase 3: Role Design + Role Contract
 ```
 
 当前目标：
 
 ```text
-RoleRoute
-  -> TaskGraph
-  -> Scheduler
-  -> WorkerAssignment
-  -> WorkerReport
-  -> Evaluation / Rework
-  -> Final Synthesis
+TaskGraph Runtime
+  -> Structured RoleWorkOutput
+  -> WorkerReport upgrade
+  -> Role-specific Prompts
+  -> Role-aware Evaluation
+  -> Role-aware Final Synthesis
 ```
 
 ## 状态总览
 
 ```text
-status: implemented
-started: yes
-completed: yes
+status: planned
+started: no
+completed: no
 ```
 
 ## Checklist
 
-### 1. TaskGraph Types
+### 1. Role Output Contract
 
-- [x] 定义 `TaskGraph`
-- [x] 定义 `TaskNode`
-- [x] 定义 `TaskNodeId / TaskGraphId`
-- [x] 定义 `WorkerAssignment`
-- [x] 定义 `WorkerReport`
-- [x] 定义 `WorkerReportStatus`
-- [x] 定义 `Evaluation`
+- [ ] 定义 `RoleWorkOutput`
+- [ ] 明确 `summary / findings / recommendations / evidence / risks / open_questions` 字段语义
+- [ ] 对照旧 Python quality checker 明确兼容字段
 
 ### 2. Protocol
 
-- [x] 新增 `Payload::WorkerAssignment`
-- [x] 新增 `Payload::WorkerReport`
-- [x] 保留旧 Worker report payload 兼容路径
-- [x] 更新相关 message 测试
+- [ ] 扩展 `WorkerReport.role_output`
+- [ ] 扩展 `WorkerReport.risks`
+- [ ] 保留 `WorkerReport.content` 兼容路径
+- [ ] 更新 serde / event 输出兼容性
 
-### 3. Planner
+### 3. Worker Runtime
 
-- [x] 新增规则版 planner
-- [x] 支持 `chat` 单节点
-- [x] 支持 `data -> ops`
-- [x] 支持 `ops -> creative`
-- [x] 支持 `data -> design -> ops`
-- [x] 支持 `engineering` 单节点
-- [x] 支持 `data -> accounting -> ops`
-- [x] 支持至少一个并行分支模板
+- [ ] Worker 解析 LLM JSON 为 `RoleWorkOutput`
+- [ ] Worker 将 role output 映射到 `WorkerReport`
+- [ ] Worker 保留 role prompt 和上游 report context
+- [ ] Worker 对无法判断的内容写入 open questions / risks
+- [ ] 保留旧纯文本 fallback
 
-### 4. Scheduler
+### 4. Prompts
 
-- [x] 找出无依赖 ready nodes
-- [x] 找出依赖已 passed 的 ready nodes
-- [x] 支持多个 ready nodes 并行派发
-- [x] 防止同一 worker 同时执行多个 node
-- [x] failed 节点的下游默认 skipped
+- [ ] 更新 `worker_execution.md`
+- [ ] 更新 `chat` role prompt
+- [ ] 更新 `ops` role prompt
+- [ ] 更新 `data` role prompt
+- [ ] 更新 `design` role prompt
+- [ ] 更新 `accounting` role prompt
+- [ ] 更新其余 role prompt 的最低契约
 
-### 5. Worker Runtime
+### 5. Evaluator
 
-- [x] Worker 接收结构化 `WorkerAssignment`
-- [x] Worker cognition context 包含 assignment
-- [x] Worker 可读取 upstream reports
-- [x] Worker 返回结构化 `WorkerReport`
-- [x] 保留旧 `task:start:*` 兼容路径
+- [ ] 优先评价 `RoleWorkOutput`
+- [ ] 检查 `summary` 非空
+- [ ] 检查 role-specific findings / recommendations
+- [ ] 检查 upstream evidence 引用
+- [ ] 检查 `open_questions`
+- [ ] 检查 `risks`
+- [ ] 防止 role 编造外部数据或工具执行结果
 
-### 6. Evaluation / Rework
+### 6. Final Synthesis
 
-- [x] 实现 deterministic evaluator
-- [x] 支持非空输出检查
-- [x] 支持 placeholder / failure phrase 检查
-- [x] 支持 `open_questions` 缺口判断
-- [x] 支持一次返工
-- [x] 超过 `max_attempts` 后标记 failed
+- [ ] 汇总 `summary`
+- [ ] 汇总 `findings`
+- [ ] 汇总 `recommendations`
+- [ ] 汇总 `risks`
+- [ ] 汇总 `open_questions`
+- [ ] 按 role 展示贡献
+- [ ] 不编造外部工具或数据结果
 
-### 7. Commander Runtime
+### 7. Tests
 
-- [x] Commander 创建 TaskGraph
-- [x] Commander 维护 node 状态
-- [x] Commander 调度 ready nodes
-- [x] Commander 接收 WorkerReport
-- [x] Commander 触发 Evaluation
-- [x] Commander 触发 Rework
-- [x] Commander 推进下游节点
-- [x] Commander 判断 TaskGraph 完成
-
-### 8. Final Synthesis
-
-- [x] 只基于 passed reports 汇总
-- [x] failed / skipped 节点进入缺口说明
-- [x] primary-only / graph-only 输出路径清晰
-- [x] 不补充 worker 未提交的数据或外部结果
-
-### 9. SessionEvent
-
-- [x] `TaskGraphPlanned`
-- [x] `TaskNodeReady`
-- [x] `TaskNodeStarted`
-- [x] `TaskNodeReported`
-- [x] `TaskNodeEvaluated`
-- [x] `TaskNodeReworkRequested`
-- [x] `TaskNodePassed`
-- [x] `TaskNodeFailed`
-- [x] `TaskGraphFinished`
-
-### 10. Tests
-
-- [x] 单节点任务测试
-- [x] 串行任务测试
-- [x] 并行分支测试
-- [x] 返工测试
-- [x] 失败降级测试
-- [x] `cargo test` 全绿
+- [ ] RoleWorkOutput 解析测试
+- [ ] WorkerReport 兼容测试
+- [ ] role-specific evaluator 测试
+- [ ] upstream evidence 测试
+- [ ] risks / open questions 测试
+- [ ] role-aware synthesis 测试
+- [ ] Ollama smoke bin 更新
+- [ ] `cargo test` 全绿
 
 ## Notes
 
-- 本阶段不实现 skill/tool/action。
-- 本阶段不引入 LLM planner。
-- 本阶段不引入 LLM evaluator。
-- 旧 Python 只作为业务经验参考，不作为 runtime 蓝图。
-- 已完成第一版 TaskGraph runtime，并补齐严格串行模板、同 worker 并发保护和 `open_questions` 缺口判断。
+- 第三阶段只做 roles 设计和契约化。
+- 第三阶段方案必须参考旧 Python 的业务效果，但不照搬旧 pipeline。
+- 不新增更多默认 roles。
+- 当前阶段不做 skill/tool/action。
