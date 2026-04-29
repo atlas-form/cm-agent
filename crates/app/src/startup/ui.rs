@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use agent_core::protocol::{AgentId, SessionId, UserId};
 use agent_error::Result;
-use agent_runtime::{AgentManager, AgentRequest};
+use agent_manager::{AgentManager, AgentRequest};
 use agent_ui::{RenderConfig, TerminalRenderer, TerminalUiApp};
 
 use crate::startup::task_id;

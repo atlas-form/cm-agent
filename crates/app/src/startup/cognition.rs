@@ -1,6 +1,7 @@
 use agent_error::{CognitionError, Result};
 use cognition::{Cognition, CognitionEngine};
-use world::get_default_llm;
+
+use crate::startup::shared_services::get_default_llm;
 
 const COMMANDER_COGNITION_PROMPT_PATH: &str = "prompts/zh/cognition/commander_routing.md";
 const WORKER_COGNITION_PROMPT_PATH: &str = "prompts/zh/cognition/worker_execution.md";
@@ -15,7 +16,7 @@ pub fn build_worker_cognition() -> Result<Box<dyn Cognition + Send>> {
 
 fn build_cognition(prompt_path: &str) -> Result<Box<dyn Cognition + Send>> {
     let llm = get_default_llm()
-        .ok_or_else(|| CognitionError::internal("no llm registered in world manager"))?;
+        .ok_or_else(|| CognitionError::internal("no llm registered in shared services"))?;
 
     let engine = CognitionEngine::new(llm, prompt_path)
         .map_err(|err| CognitionError::internal(err.to_string()))?;
@@ -27,13 +28,13 @@ mod tests {
     use cognition::{CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind};
 
     use super::build_commander_cognition;
-    use crate::startup::{settings::Settings, world::init_shared_services};
+    use crate::startup::{settings::Settings, shared_services::init_shared_services};
 
     #[tokio::test]
     #[ignore = "requires running chat completions-compatible service and model"]
     async fn chat_completions_cognition_smoke() {
         let settings = Settings::load_default().expect("load settings failed");
-        init_shared_services(&settings).expect("world init failed");
+        init_shared_services(&settings).expect("shared services init failed");
         let cognition = build_commander_cognition().expect("build cognition failed");
 
         let input = CognitionInput {

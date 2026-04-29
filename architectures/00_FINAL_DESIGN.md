@@ -2,33 +2,30 @@
 
 本文是给后续 AI / Codex 执行重构用的最小核心说明。
 
-不要重新推翻现有 Rust 架构。
-
-最终思想只有两点：
-
-1. 把原来的单用户永久生命改成短生命。
-2. 在外面加一个全局 `AgentManager`。
-
-## 核心结构
+最终结构已经定稿：
 
 ```text
 AgentManager
   -> AgentSession
       -> SessionRuntime
-          -> World
-              -> Commander
-              -> Worker
+          -> SessionContext
+          -> Commander
+          -> Worker
 ```
 
-## 核心定义
+## 核心判断
 
-### AgentManager
+`AgentManager` 和 `SessionRuntime` 不能混在一起。
 
-全局管理器。
+`World` 不再作为独立 crate 或核心概念保留。
+
+原来 `World` 里的 session 内共享资源，改名为 `SessionContext`，并归属于 `AgentSession / SessionRuntime`。
+
+## AgentManager
+
+全局多用户管理器。
 
 它不是 runtime。
-
-它不思考、不决策、不执行任务。
 
 它只负责：
 
@@ -39,11 +36,28 @@ AgentManager
 - 关闭 / 回收 session
 - 持有共享依赖，如 LLM provider、MemoryStore、配置
 
-### AgentSession
+它不负责：
 
-一次用户任务或一段连续对话的运行上下文。
+- 思考
+- 决策
+- 执行 action
+- 拼 prompt
+- 保存用户工作记忆
 
-它是短生命的。
+## AgentSession
+
+一次用户任务或一段连续对话的 session 容器。
+
+它是多用户隔离边界。
+
+它负责持有：
+
+- `UserId`
+- `WorkspaceId`
+- `AgentId`
+- `SessionId`
+- `SessionContext`
+- session 级 working memory
 
 普通任务完成后可以销毁。
 
@@ -51,7 +65,7 @@ AgentManager
 
 长任务可以后台运行，完成后关闭。
 
-### SessionRuntime
+## SessionRuntime
 
 真正的短生命 agent runtime。
 
@@ -59,34 +73,47 @@ AgentManager
 
 任务完成后停止。
 
-它负责在 session 内运行：
+它负责在本 session 内运行：
 
-- `World`
 - `Commander`
 - `Worker`
 - message loop
 - action 推进
 - worker report 汇总
 
-### World
+`SessionRuntime` 不应该变成全局对象。
 
-不再是全局永久单例。
+## SessionContext
 
-World 属于某个 `SessionRuntime`。
+`SessionContext` 替代原来的 `World`。
 
-World 只保存当前 session 内的通信端点和 WorkerProfile。
+它不是 manager。
 
-### Commander
+它不是 runtime。
+
+它只保存当前 session 内部共享资源：
+
+- commander / worker 通信端点
+- worker catalog
+- blackboard
+- extensions
+- 临时状态
+
+禁止不同用户 session 共用同一个 `SessionContext`。
+
+## Commander
 
 仍然是强中心化唯一决策者。
 
 但唯一性只在一个 session 内成立。
 
-### Worker
+## Worker
 
 仍然是执行生命体。
 
 但 Worker 只在一个 session 内运行。
+
+Worker 不跨 session 持有状态。
 
 ## 生命周期
 
@@ -94,7 +121,8 @@ World 只保存当前 session 内的通信端点和 WorkerProfile。
 外部请求
   -> AgentManager 找到或创建 AgentSession
   -> AgentSession 启动 SessionRuntime
-  -> SessionRuntime 创建 World / Commander / Worker
+  -> SessionRuntime 使用 SessionContext 创建通信和状态边界
+  -> SessionRuntime 创建 Commander / Worker
   -> Commander 决策
   -> Worker 执行
   -> WorkerReport 回 Commander
@@ -103,6 +131,34 @@ World 只保存当前 session 内的通信端点和 WorkerProfile。
   -> 停止 SessionRuntime
   -> 销毁 AgentSession 或 TTL 保活
 ```
+
+## Crate 方向
+
+目标 crate 边界：
+
+```text
+agent-manager
+  AgentManager
+
+agent-session
+  AgentSession
+  SessionRuntime
+  SessionContext
+
+agent
+  Commander
+  Worker
+
+core
+  Message
+  Payload
+  Id
+  MessageContext
+```
+
+`world` crate 已删除。
+
+`agent-runtime` crate 已拆分，不继续同时放 manager 和 runtime。
 
 ## 与 Python pipeline 的区别
 
@@ -118,7 +174,7 @@ Rust 要做的是：
 
 ```text
 短生命 runtime
-内部有 World / Commander / Worker
+内部有 SessionContext / Commander / Worker
 通过 Message 通信
 通过状态机推进
 结束后保存状态
@@ -131,23 +187,13 @@ Rust 要做的是：
 - 不照搬 Python agent。
 - 不把 `AgentManager` 写成 pipeline。
 - 不让全局对象持有用户记忆。
-- 不让 World 全局共享。
+- 不保留全局 `World`。
+- 不让 `SessionContext` 跨 session 共享。
 - 不让 Worker 跨 session 持有状态。
 - 不在第一阶段处理 skill。
 - 不在第一阶段处理复杂长期 memory。
-- LLM 先沿用已有实现。
-
-## 第一阶段代码目标
-
-1. 增加 `AgentManager`。
-2. 增加 `AgentSession`。
-3. 增加 `SessionRuntime`。
-4. 让 `World` 从全局概念变成 session 内对象。
-5. 让 `Commander / Worker` 在 `SessionRuntime` 内创建和运行。
-6. 给协议加 `SessionId / UserId / AgentId / WorkspaceId` 这类上下文。
-7. 增加最小 `MemoryStore` trait，但第一阶段可以先空实现或文件实现。
-8. 保持现有 Commander / Worker / Action / Cognition 思想不变。
+- LLM 暂时作为 app 启动阶段的 shared service 注册，后续再抽成更清晰的共享依赖。
 
 ## 一句话
 
-> AgentManager 管 session；AgentSession 里跑真正的短生命 agent runtime；任务结束后保存状态并销毁。
+> AgentManager 管多用户 session；AgentSession 是隔离边界；SessionRuntime 跑一次短生命 agent；SessionContext 替代旧 World。

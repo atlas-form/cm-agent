@@ -4,11 +4,11 @@ use std::{
 };
 
 #[derive(Debug, Default)]
-pub struct WorldBlackboard {
+pub struct SessionBlackboard {
     inner: RwLock<HashMap<String, String>>,
 }
 
-impl WorldBlackboard {
+impl SessionBlackboard {
     pub fn new() -> Self {
         Self::default()
     }
@@ -35,12 +35,12 @@ impl WorldBlackboard {
     fn read_inner(&self, scene: &str) -> RwLockReadGuard<'_, HashMap<String, String>> {
         self.inner
             .read()
-            .unwrap_or_else(|_| panic!("world blackboard lock poisoned when {scene}"))
+            .unwrap_or_else(|_| panic!("session blackboard lock poisoned when {scene}"))
     }
 
     fn write_inner(&self, scene: &str) -> RwLockWriteGuard<'_, HashMap<String, String>> {
         self.inner
             .write()
-            .unwrap_or_else(|_| panic!("world blackboard lock poisoned when {scene}"))
+            .unwrap_or_else(|_| panic!("session blackboard lock poisoned when {scene}"))
     }
 }

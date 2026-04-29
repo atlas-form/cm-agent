@@ -1,19 +1,19 @@
 mod cognition;
 mod settings;
+mod shared_services;
 mod ui;
-mod world;
 
 use std::sync::Arc;
 
 use agent_error::Result;
-use agent_runtime::{AgentManager, AgentManagerConfig};
+use agent_manager::{AgentManager, AgentManagerConfig};
 use agent_ui::{AppPhase, ChatTurn, TerminalUiApp, UiEvent};
 
 use self::{
     cognition::{build_commander_cognition, build_worker_cognition},
     settings::Settings,
+    shared_services::init_shared_services,
     ui::{AgentBridgeSession, build_terminal_ui},
-    world::init_shared_services,
 };
 
 pub struct AppStartup {

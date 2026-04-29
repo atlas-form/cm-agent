@@ -1,20 +1,26 @@
 use std::{collections::HashMap, sync::Arc, thread, time::Duration};
 
 use agent_core::{
-    messaging::{MessageReceive, MessageSend},
+    messaging::{MessageReceive, MessageSend, MessageTx},
     protocol::{
         AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, TaskSpec, WorkerId,
+        WorkerProfile,
     },
 };
 use cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind};
 use futures::executor::block_on;
 use tracing::{info, warn};
-use world::WorldRuntime;
 
 use super::{
     CommanderPhase, CommanderState, CommanderTask, RoutedDecision, TaskMemory,
     decision_intent_from_json,
 };
+
+pub trait CommanderSessionContext: Send + Sync {
+    fn get_worker_tx(&self, worker_id: &WorkerId) -> Option<MessageTx>;
+
+    fn list_worker_profiles(&self) -> Vec<WorkerProfile>;
+}
 
 pub struct Commander {
     id: AgentId,
@@ -27,7 +33,7 @@ pub struct Commander {
     receiver: Box<dyn MessageReceive + Send>,
     sender: Box<dyn MessageSend + Send>,
     memory: TaskMemory,
-    world: Arc<WorldRuntime>,
+    session_context: Arc<dyn CommanderSessionContext>,
 }
 
 impl Commander {
@@ -37,17 +43,7 @@ impl Commander {
         cognition: Box<dyn Cognition + Send>,
         receiver: Box<dyn MessageReceive + Send>,
         sender: Box<dyn MessageSend + Send>,
-    ) -> Self {
-        Self::new_with_world(id, world_id, cognition, receiver, sender, world::world())
-    }
-
-    pub fn new_with_world(
-        id: AgentId,
-        world_id: AgentId,
-        cognition: Box<dyn Cognition + Send>,
-        receiver: Box<dyn MessageReceive + Send>,
-        sender: Box<dyn MessageSend + Send>,
-        world: Arc<WorldRuntime>,
+        session_context: Arc<dyn CommanderSessionContext>,
     ) -> Self {
         Self {
             id,
@@ -60,7 +56,7 @@ impl Commander {
             receiver,
             sender,
             memory: TaskMemory::default(),
-            world,
+            session_context,
         }
     }
 
@@ -273,7 +269,7 @@ impl Commander {
 
     fn dispatch_task_to_worker(&self, task: TaskSpec, target_worker: Option<WorkerId>) -> bool {
         let target_worker = target_worker.unwrap_or_else(|| WorkerId("worker-1".to_string()));
-        let Some(worker_tx) = self.world.directory().get_worker_tx(&target_worker) else {
+        let Some(worker_tx) = self.session_context.get_worker_tx(&target_worker) else {
             warn!(worker_id = %target_worker.0, "no worker tx available for dispatch");
             return false;
         };
@@ -308,7 +304,7 @@ impl Commander {
         let mut metadata = HashMap::new();
         metadata.insert("state".to_string(), format!("{:?}", self.state));
         metadata.insert("phase".to_string(), format!("{:?}", self.phase));
-        let worker_profiles = self.world.worker_catalog().list();
+        let worker_profiles = self.session_context.list_worker_profiles();
         metadata.insert(
             "available_workers.count".to_string(),
             worker_profiles.len().to_string(),
@@ -350,7 +346,7 @@ impl Commander {
             })
             .collect::<Vec<_>>();
         facts.extend(worker_profiles.iter().map(|profile| Fact {
-            source: "world.worker_catalog".to_string(),
+            source: "session_context.worker_catalog".to_string(),
             content: profile.summary_line(),
             reliability: 1.0,
         }));

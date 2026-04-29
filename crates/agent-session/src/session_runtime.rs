@@ -7,13 +7,15 @@ use agent::{commander::Commander, worker::Worker};
 use agent_core::{
     messaging::{MessageSend, TokioInbox, TokioOutbox},
     protocol::{
-        AgentId, Message, MessageContext, MessageId, Payload, SessionId, TaskId, TaskSpec, WorkerId,
+        AgentId, Message, MessageContext, MessageId, Payload, SessionId, TaskId, TaskSpec,
+        WorkerId, WorkerProfile,
     },
 };
 use agent_error::{Result, SettingsError};
 use cognition::Cognition;
 use tokio::sync::mpsc as tokio_mpsc;
-use world::{WorkerProfile, WorldRuntime};
+
+use crate::SessionContext;
 
 #[derive(Debug, Clone)]
 pub struct SessionRuntimeConfig {
@@ -49,7 +51,7 @@ pub struct SessionRuntime {
     session_id: SessionId,
     context: MessageContext,
     task_description: String,
-    world: Arc<WorldRuntime>,
+    session_context: Arc<SessionContext>,
     commander_tx: agent_core::messaging::MessageTx,
     worker_tx: agent_core::messaging::MessageTx,
     response_rx: Option<mpsc::Receiver<Message>>,
@@ -60,28 +62,28 @@ pub struct SessionRuntime {
 
 impl SessionRuntime {
     pub fn start(input: SessionRuntimeInput) -> Result<Self> {
-        let world = Arc::new(WorldRuntime::new());
+        let session_context = Arc::new(SessionContext::new());
         let (commander_tx, commander_rx) = tokio_mpsc::unbounded_channel::<Message>();
         let (worker_tx, worker_rx) = tokio_mpsc::unbounded_channel::<Message>();
         let (response_tx, response_rx) = mpsc::channel::<Message>();
 
-        world
+        session_context
             .directory()
             .register_commander_tx(commander_tx.clone());
         for profile in &input.config.worker_profiles {
-            world
+            session_context
                 .directory()
                 .register_worker_tx(profile.worker_id.clone(), worker_tx.clone());
-            world.worker_catalog().register(profile.clone());
+            session_context.worker_catalog().register(profile.clone());
         }
 
-        let commander = Commander::new_with_world(
+        let commander = Commander::new(
             AgentId("commander".to_string()),
             AgentId("external-host".to_string()),
             input.commander_cognition,
             Box::new(TokioInbox::new(commander_rx)),
             Box::new(ExternalOutbox::new(response_tx)),
-            world.clone(),
+            session_context.clone(),
         );
 
         let worker = Worker::new(
@@ -104,7 +106,7 @@ impl SessionRuntime {
             session_id: input.session_id,
             context: input.context,
             task_description: input.task_description,
-            world,
+            session_context,
             commander_tx,
             worker_tx,
             response_rx: Some(response_rx),
@@ -183,8 +185,8 @@ impl SessionRuntime {
         .await;
     }
 
-    pub fn world(&self) -> Arc<WorldRuntime> {
-        self.world.clone()
+    pub fn session_context(&self) -> Arc<SessionContext> {
+        self.session_context.clone()
     }
 }
 

@@ -1,7 +1,8 @@
 use agent_error::Result;
 use serde::Deserialize;
 use toolcraft_config::load_settings;
-use world::LlmKey;
+
+use crate::startup::shared_services::LlmKey;
 
 pub const DEFAULT_SERVICES_CONFIG_PATH: &str = "config/services.toml";
 

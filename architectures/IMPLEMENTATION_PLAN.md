@@ -52,6 +52,7 @@
 职责：
 
 - 持有 session context
+- 持有 `SessionContext`
 - 创建 / 持有 `SessionRuntime`
 - 管理本 session 的 WorkingMemory
 - 在结束时触发 snapshot / event / memory 保存
@@ -67,33 +68,35 @@
 
 职责：
 
-- 创建 session 内 `World`
+- 使用 session 内 `SessionContext`
 - 创建 Commander
 - 创建 Workers
 - 建立消息通道
 - 投递 HumanCommand
 - 等待 WorkerReport
 - 收集最终输出
-- 停止并释放 World / Commander / Worker
+- 停止并释放 Commander / Worker
 
 注意：
 
 - `SessionRuntime` 才是真正的短生命 runtime。
 - `AgentManager` 不是 runtime。
 
-## Phase 5：World 去全局化
+## Phase 5：删除 World，改为 SessionContext
 
-目标：World 不再是全局永久单例。
+目标：不再保留 `world` 作为核心概念。
 
 修改方向：
 
-- `World` 变成 session 内对象。
-- `get_worker_tx` / `list_worker_profiles` 这类全局查询要改成从 session world 查询。
+- 原 `World` 内的 EndpointDirectory / WorkerCatalog / Blackboard / Extensions 移入 `SessionContext`。
+- `get_worker_tx` / `list_worker_profiles` 这类全局查询要改成从 `SessionContext` 查询。
 - 每个 session 有自己的 WorkerProfile 和 sender。
+- 删除 `world` crate。
 
 禁止：
 
-- 不允许不同用户 session 共用同一个 World 状态。
+- 不允许不同用户 session 共用同一个 `SessionContext`。
+- 不允许继续引入全局 `world()` / `init_world()`。
 
 ## Phase 6：Commander / Worker 接入 SessionRuntime
 
@@ -141,7 +144,7 @@ input
   -> AgentManager
   -> AgentSession
   -> SessionRuntime
-  -> World
+  -> SessionContext
   -> Commander
   -> Worker
   -> WorkerReport
@@ -153,7 +156,7 @@ input
 
 - 能创建 session。
 - 能启动 session runtime。
-- 能创建 World / Commander / Worker。
+- 能创建 SessionContext / Commander / Worker。
 - 能派发任务。
 - Worker 能回报。
 - session 能结束并释放。
@@ -177,9 +180,9 @@ input
 
 ```text
 旧：World / Commander / Worker 永久活着
-新：World / Commander / Worker 在 SessionRuntime 内短暂活着
+新：SessionContext / Commander / Worker 在 SessionRuntime 内短暂活着
 ```
 
 一句话：
 
-> AgentManager 管 session；SessionRuntime 跑真正的短生命 agent。
+> AgentManager 管 session；AgentSession 做隔离边界；SessionRuntime 跑真正的短生命 agent。

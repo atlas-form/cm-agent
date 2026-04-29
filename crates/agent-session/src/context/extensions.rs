@@ -5,17 +5,17 @@ use std::{
 };
 
 #[derive(Default)]
-pub struct WorldExtensions {
+pub struct SessionExtensions {
     inner: RwLock<HashMap<TypeId, Box<dyn Any + Send + Sync>>>,
 }
 
-impl std::fmt::Debug for WorldExtensions {
+impl std::fmt::Debug for SessionExtensions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorldExtensions").finish_non_exhaustive()
+        f.debug_struct("SessionExtensions").finish_non_exhaustive()
     }
 }
 
-impl WorldExtensions {
+impl SessionExtensions {
     pub fn new() -> Self {
         Self::default()
     }
@@ -27,7 +27,7 @@ impl WorldExtensions {
         let mut inner = self
             .inner
             .write()
-            .expect("world extensions lock poisoned when insert");
+            .expect("session extensions lock poisoned when insert");
         inner.insert(TypeId::of::<T>(), Box::new(value));
     }
 
@@ -38,7 +38,7 @@ impl WorldExtensions {
         let inner = self
             .inner
             .read()
-            .expect("world extensions lock poisoned when contains");
+            .expect("session extensions lock poisoned when contains");
         inner.contains_key(&TypeId::of::<T>())
     }
 
@@ -49,7 +49,7 @@ impl WorldExtensions {
         let inner = self
             .inner
             .read()
-            .expect("world extensions lock poisoned when with");
+            .expect("session extensions lock poisoned when with");
         inner
             .get(&TypeId::of::<T>())
             .and_then(|stored| stored.downcast_ref::<T>().map(f))

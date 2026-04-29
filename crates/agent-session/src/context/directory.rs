@@ -3,9 +3,7 @@ use std::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use agent_core::messaging::MessageTx;
-
-use crate::WorkerId;
+use agent_core::{messaging::MessageTx, protocol::WorkerId};
 
 #[derive(Debug, Default)]
 struct EndpointDirectoryInner {
@@ -56,12 +54,12 @@ impl EndpointDirectory {
     fn read_inner(&self, scene: &str) -> RwLockReadGuard<'_, EndpointDirectoryInner> {
         self.inner
             .read()
-            .unwrap_or_else(|_| panic!("world directory lock poisoned when {scene}"))
+            .unwrap_or_else(|_| panic!("session context directory lock poisoned when {scene}"))
     }
 
     fn write_inner(&self, scene: &str) -> RwLockWriteGuard<'_, EndpointDirectoryInner> {
         self.inner
             .write()
-            .unwrap_or_else(|_| panic!("world directory lock poisoned when {scene}"))
+            .unwrap_or_else(|_| panic!("session context directory lock poisoned when {scene}"))
     }
 }

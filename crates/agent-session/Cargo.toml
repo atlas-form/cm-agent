@@ -1,5 +1,5 @@
 [package]
-name = "agent-runtime"
+name = "agent-session"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,5 @@ perception = { workspace = true }
 cognition = { workspace = true }
 agent-error = { workspace = true }
 agent-core = { package = "core", path = "../core" }
-world = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

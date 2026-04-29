@@ -5,8 +5,7 @@ use std::{
 
 use agent_core::protocol::{AgentId, SessionId, UserId, WorkspaceId};
 use agent_error::Result;
-
-use crate::{
+use agent_session::{
     AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, MemoryStore,
     NoopMemoryStore, SessionResult, SessionRuntimeConfig,
 };

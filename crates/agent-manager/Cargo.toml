@@ -1,10 +1,11 @@
 [package]
-name = "world"
+name = "agent-manager"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [dependencies]
+agent-error = { workspace = true }
 agent-core = { package = "core", path = "../core" }
-agent-llm = { workspace = true }
+agent-session = { workspace = true }

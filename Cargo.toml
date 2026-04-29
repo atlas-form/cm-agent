@@ -19,8 +19,8 @@ perception = { path = "crates/perception" }
 agent-error = { path = "crates/agent-error" }
 agent-utils = { path = "crates/agent-utils" }
 agent-llm = { path = "crates/agent-llm" }
-agent-runtime = { path = "crates/agent-runtime" }
-world = { path = "crates/world" }
+agent-manager = { path = "crates/agent-manager" }
+agent-session = { path = "crates/agent-session" }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1.50", features = ["rt-multi-thread"] }
