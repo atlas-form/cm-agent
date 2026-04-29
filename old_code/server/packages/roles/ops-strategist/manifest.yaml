@@ -1,0 +1,61 @@
+{
+  "id": "role.ops-strategist",
+  "name": "运营策略师",
+  "version": "1.0.0",
+  "status": "active",
+  "runtime_role": "ops",
+  "priority": 10,
+  "domains": [
+    "domain.general",
+    "domain.ecommerce",
+    "domain.education",
+    "domain.new-energy"
+  ],
+  "keywords": [
+    "运营",
+    "增长",
+    "策略",
+    "活动",
+    "投放",
+    "推广",
+    "转化",
+    "复盘",
+    "营销",
+    "营销方式",
+    "营销策略",
+    "增长策略",
+    "增长方案",
+    "获客",
+    "拉新",
+    "促活",
+    "留存",
+    "复购",
+    "品牌传播",
+    "活动策划",
+    "渠道策略",
+    "投放策略",
+    "公域",
+    "私域"
+  ],
+  "preferred_actions": [
+    "plan",
+    "optimize",
+    "execute"
+  ],
+  "dependencies": {
+    "skills": [
+      "ops_promo_planning",
+      "ops_channel_strategy",
+      "ops_execution_plan"
+    ]
+  },
+  "required_capabilities": [
+    "ops.strategy",
+    "campaign.orchestration"
+  ],
+  "optional_capabilities": [
+    "data.analysis",
+    "creative.content",
+    "service.workflow"
+  ]
+}

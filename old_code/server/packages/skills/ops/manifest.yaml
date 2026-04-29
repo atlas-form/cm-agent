@@ -1,0 +1,19 @@
+{
+  "id": "builtin.ops",
+  "name": "Builtin Ops Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.ops",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "ops"
+  ],
+  "provided_capabilities": [
+    "ops.strategy",
+    "campaign.orchestration",
+    "inventory.optimization",
+    "pricing.optimization"
+  ]
+}

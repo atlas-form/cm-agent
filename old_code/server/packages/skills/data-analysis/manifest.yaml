@@ -1,0 +1,20 @@
+{
+  "id": "builtin.data_analysis",
+  "name": "Builtin Data Analysis Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.data_analysis",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "data"
+  ],
+  "provided_capabilities": [
+    "data.analysis",
+    "metrics.diagnosis",
+    "forecast.demand",
+    "attribution.modeling",
+    "data.pipeline"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "builtin.coordination",
+  "name": "Builtin Coordination Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.coordination",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "ops",
+    "data",
+    "service",
+    "creative",
+    "accounting",
+    "engineering",
+    "web",
+    "design"
+  ],
+  "provided_capabilities": [
+    "workflow.coordination",
+    "task.orchestration"
+  ],
+  "core": true
+}

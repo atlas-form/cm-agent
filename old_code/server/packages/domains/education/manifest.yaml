@@ -1,0 +1,25 @@
+{
+  "id": "domain.education",
+  "name": "教育领域",
+  "version": "1.0.0",
+  "status": "active",
+  "priority": 20,
+  "keywords": [
+    "教育",
+    "课程",
+    "学员",
+    "课堂",
+    "教培",
+    "招生",
+    "教务",
+    "升学",
+    "学校",
+    "培训"
+  ],
+  "preferred_roles": [
+    "ops",
+    "data",
+    "service"
+  ],
+  "prompt_profile": "education"
+}

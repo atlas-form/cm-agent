@@ -1,0 +1,19 @@
+{
+  "id": "builtin.creative",
+  "name": "Builtin Creative Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.creative",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "creative"
+  ],
+  "provided_capabilities": [
+    "creative.content",
+    "creative.video",
+    "creative.copywriting",
+    "seo.title"
+  ]
+}

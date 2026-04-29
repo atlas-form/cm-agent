@@ -1,0 +1,19 @@
+{
+  "id": "builtin.accounting",
+  "name": "Builtin Accounting Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.accounting",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "accounting"
+  ],
+  "provided_capabilities": [
+    "finance.profitability",
+    "finance.cashflow",
+    "budget.planning",
+    "roi.modeling"
+  ]
+}

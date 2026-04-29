@@ -1,0 +1,41 @@
+{
+  "id": "role.creative-studio",
+  "name": "内容创意师",
+  "version": "1.0.0",
+  "status": "active",
+  "runtime_role": "creative",
+  "priority": 40,
+  "domains": [
+    "domain.general",
+    "domain.ecommerce",
+    "domain.education"
+  ],
+  "keywords": [
+    "文案",
+    "创意",
+    "视频",
+    "脚本",
+    "种草",
+    "直播",
+    "标题"
+  ],
+  "preferred_actions": [
+    "create",
+    "optimize"
+  ],
+  "dependencies": {
+    "skills": [
+      "creative_video_script",
+      "creative_seeding_copy",
+      "creative_title_ctr_scorer"
+    ]
+  },
+  "required_capabilities": [
+    "creative.content"
+  ],
+  "optional_capabilities": [
+    "creative.video",
+    "creative.copywriting",
+    "seo.title"
+  ]
+}

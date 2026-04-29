@@ -1,0 +1,18 @@
+{
+  "id": "builtin.web",
+  "name": "Builtin Web Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.web",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "web"
+  ],
+  "provided_capabilities": [
+    "seo.title",
+    "seo.optimization",
+    "web.conversion"
+  ]
+}

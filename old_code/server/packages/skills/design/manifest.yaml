@@ -1,0 +1,17 @@
+{
+  "id": "builtin.design",
+  "name": "Builtin Design Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.design",
+    "attr": "ALL_SKILLS"
+  },
+  "provided_roles": [
+    "design"
+  ],
+  "provided_capabilities": [
+    "design.visual",
+    "design.layout"
+  ]
+}

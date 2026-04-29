@@ -1,0 +1,26 @@
+{
+  "id": "builtin.search",
+  "name": "Builtin Search Skill Pack",
+  "version": "1.0.0",
+  "status": "active",
+  "entrypoint": {
+    "module": "src.skills.search",
+    "attr": "ALL_SKILLS"
+  },
+  "enabled": true,
+  "provided_roles": [
+    "ops",
+    "data",
+    "service",
+    "creative",
+    "accounting",
+    "engineering",
+    "web",
+    "design"
+  ],
+  "provided_capabilities": [
+    "external.search",
+    "research.discovery"
+  ],
+  "core": true
+}
