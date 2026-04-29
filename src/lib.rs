@@ -1,43 +1,45 @@
+#![allow(dead_code, unused_imports)]
+
+pub mod api;
+
 #[path = "action/lib.rs"]
-pub mod action;
+pub(crate) mod action;
 #[path = "agent/lib.rs"]
-pub mod agent;
+pub(crate) mod agent;
 #[path = "agent_error/lib.rs"]
-pub mod agent_error;
+pub(crate) mod agent_error;
 #[path = "agent_manager/lib.rs"]
-pub mod agent_manager;
+pub(crate) mod agent_manager;
 #[path = "agent_session/lib.rs"]
-pub mod agent_session;
+pub(crate) mod agent_session;
 #[path = "agent_utils/lib.rs"]
-pub mod agent_utils;
+pub(crate) mod agent_utils;
 #[path = "cognition/lib.rs"]
-pub mod cognition;
+pub(crate) mod cognition;
 #[path = "core/lib.rs"]
-pub mod core;
+pub(crate) mod core;
 #[path = "perception/lib.rs"]
-pub mod perception;
+pub(crate) mod perception;
 
-pub use core::{messaging, messaging::*, protocol, protocol::*};
+pub(crate) use core::{messaging, messaging::*, protocol, protocol::*};
 
-pub use action::{
+pub(crate) use action::{
     Action, ActionId, ActionInput, ActionLifecycle, ActionResult, ActionState, ActionStatus,
     ActionTarget, ActionTransitionError, ActionType,
 };
-pub use agent_manager::{AgentManager, AgentManagerConfig, AgentRequest};
-pub use agent_session::{
+pub(crate) use agent_session::{
     AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, EndpointDirectory,
     MemoryScope, MemoryStore, NoopMemoryStore, SessionBlackboard, SessionContext, SessionEventRx,
     SessionEventTx, SessionExtensions, SessionResult, SessionRuntime, SessionRuntimeConfig,
     SessionRuntimeInput, SessionSnapshot, WorkerCatalog, context,
 };
-pub use cognition::{
+pub(crate) use cognition::{
     Cognition, CognitionDecoder, CognitionEngine, CognitionFailure, CognitionInput,
     CognitionOutput, CognitionResult, Context, Fact, FailureReason, Intent, IntentKind,
     JsonTemplateDecoder,
 };
-pub use model_gateway_rs::{llm, model};
-pub use perception::{
+pub(crate) use perception::{
     Modality, Percept, PerceptContent, Perception, PerceptionOutput, Signal, Stimulus,
     StimulusSpan, TextUtterancePerception,
 };
-pub use tracing;
+pub extern crate tracing;

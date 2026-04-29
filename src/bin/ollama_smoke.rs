@@ -1,4 +1,4 @@
-use cm_agent::{
+use model_gateway_rs::{
     llm::{Llm, chat_completions::ChatCompletionsLlm},
     model::llm::{ChatMessage, LlmInput},
 };

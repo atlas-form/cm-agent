@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use cm_agent::{
+use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, SessionId, UserId,
+    CognitionResult, Error, Result, SessionId, UserId,
 };
 use serde_json::json;
 
@@ -54,7 +54,7 @@ impl Cognition for WorkerSmokeCognition {
 }
 
 #[tokio::main]
-async fn main() -> cm_agent::agent_error::Result<()> {
+async fn main() -> Result<()> {
     let manager = Arc::new(AgentManager::new(AgentManagerConfig::new(
         Arc::new(|| Ok(Box::new(CommanderSmokeCognition))),
         Arc::new(|| Ok(Box::new(WorkerSmokeCognition))),
@@ -77,7 +77,7 @@ async fn main() -> cm_agent::agent_error::Result<()> {
                 })
                 .await?;
 
-            Ok::<_, cm_agent::agent_error::Error>((user_id, session_id, result.output))
+            Ok::<_, Error>((user_id, session_id, result.output))
         }));
     }
 

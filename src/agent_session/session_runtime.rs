@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::{
@@ -46,7 +47,7 @@ pub struct SessionRuntimeInput {
     pub event_tx: Option<SessionEventTx>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionResult {
     pub session_id: SessionId,
     pub output: String,

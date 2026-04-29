@@ -7,9 +7,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use cm_agent::{
+use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, SessionId, UserId,
+    CognitionResult, Result, SessionId, UserId,
 };
 use serde_json::json;
 
@@ -67,7 +67,7 @@ impl Cognition for WorkerBenchCognition {
 }
 
 #[tokio::main]
-async fn main() -> cm_agent::agent_error::Result<()> {
+async fn main() -> Result<()> {
     let total = env_usize("SESSION_PRESSURE_TOTAL").unwrap_or(10000);
     let worker_delay_ms = env_u64("SESSION_PRESSURE_WORKER_DELAY_MS").unwrap_or(10000);
     let payload_kb = env_usize("SESSION_PRESSURE_PAYLOAD_KB").unwrap_or(0);

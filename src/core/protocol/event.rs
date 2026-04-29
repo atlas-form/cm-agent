@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::protocol::{SessionId, TaskId, WorkerId};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionEvent {
     Started {
         session_id: SessionId,
@@ -33,4 +35,19 @@ pub enum SessionEvent {
     Finished {
         session_id: SessionId,
     },
+}
+
+impl SessionEvent {
+    pub const fn event_name(&self) -> &'static str {
+        match self {
+            Self::Started { .. } => "started",
+            Self::CommanderThinking { .. } => "commander_thinking",
+            Self::WorkerStarted { .. } => "worker_started",
+            Self::LlmChunk { .. } => "llm_chunk",
+            Self::WorkerFinished { .. } => "worker_finished",
+            Self::Output { .. } => "output",
+            Self::Failed { .. } => "failed",
+            Self::Finished { .. } => "finished",
+        }
+    }
 }

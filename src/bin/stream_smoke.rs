@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cm_agent::{
+use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, SessionEvent, SessionId, UserId,
+    CognitionResult, Result, SessionEvent, SessionId, UserId,
 };
 use serde_json::json;
 
@@ -53,7 +53,7 @@ impl Cognition for WorkerStreamCognition {
 }
 
 #[tokio::main]
-async fn main() -> cm_agent::agent_error::Result<()> {
+async fn main() -> Result<()> {
     let manager = AgentManager::new(AgentManagerConfig::new(
         Arc::new(|| Ok(Box::new(CommanderStreamCognition))),
         Arc::new(|| Ok(Box::new(WorkerStreamCognition))),

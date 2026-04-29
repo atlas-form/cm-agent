@@ -1,14 +1,18 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use cm_agent::{
+use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionEngine,
     CognitionFailure, CognitionInput, CognitionResult, FailureReason, JsonTemplateDecoder,
     SessionEvent, SessionId, SessionRuntimeConfig, UserId,
+};
+use model_gateway_rs::{
+    error::Result as GatewayResult,
     llm::{Llm, chat_completions::ChatCompletionsLlm},
-    model::llm::{ChatMessage, LlmInput},
+    model::llm::{ChatMessage, LlmInput, LlmOutput},
 };
 use serde_json::json;
+use toolcraft_request::ByteStream;
 
 const COMMANDER_PROMPT: &str = "prompts/zh/cognition/commander_routing.md";
 const WORKER_PROMPT: &str = "prompts/zh/cognition/worker_execution.md";
@@ -21,11 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_tokens = std::env::var("OLLAMA_MAX_TOKENS")
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or(1_024);
+        .unwrap_or(16_000);
     let timeout_secs = std::env::var("AGENT_TIMEOUT_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(120);
+        .unwrap_or(3_600);
     let heartbeat_secs = std::env::var("AGENT_HEARTBEAT_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -46,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("full_prompts={full_prompts}");
     println!("input={input}");
     println!("# 当前测试还没有 token 级 LlmChunk；LLM 调用期间会先输出 heartbeat。");
+    println!("# 默认给本地 Ollama 留很长等待时间，方便观察一次完整演示过程。");
     println!("# 默认模式只用真实 LLM 做一次轻量 Commander 判断，Worker 使用快速假执行。");
     println!();
 
@@ -59,22 +64,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker_llm = llm.clone();
     let stream_start = tokio::time::Instant::now();
     let mut config = if full_prompts {
+        let commander_debug_llm = Arc::new(DebugLlm {
+            label: "commander",
+            inner: commander_llm.clone(),
+            stream_start,
+        });
+        let worker_debug_llm = Arc::new(DebugLlm {
+            label: "worker",
+            inner: worker_llm.clone(),
+            stream_start,
+        });
         AgentManagerConfig::new(
             Arc::new(move || {
-                Ok(Box::new(
-                    CognitionEngine::<ChatCompletionsLlm, JsonTemplateDecoder>::new(
-                        commander_llm.clone(),
+                Ok(
+                    Box::new(CognitionEngine::<DebugLlm, JsonTemplateDecoder>::new(
+                        commander_debug_llm.clone(),
                         COMMANDER_PROMPT,
-                    )?,
-                ) as Box<dyn Cognition + Send>)
+                    )?) as Box<dyn Cognition + Send>,
+                )
             }),
             Arc::new(move || {
-                Ok(Box::new(
-                    CognitionEngine::<ChatCompletionsLlm, JsonTemplateDecoder>::new(
-                        worker_llm.clone(),
+                Ok(
+                    Box::new(CognitionEngine::<DebugLlm, JsonTemplateDecoder>::new(
+                        worker_debug_llm.clone(),
                         WORKER_PROMPT,
-                    )?,
-                ) as Box<dyn Cognition + Send>)
+                    )?) as Box<dyn Cognition + Send>,
+                )
             }),
         )
     } else {
@@ -214,6 +229,33 @@ fn escape_json(value: &str) -> String {
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+}
+
+struct DebugLlm {
+    label: &'static str,
+    inner: Arc<ChatCompletionsLlm>,
+    stream_start: tokio::time::Instant,
+}
+
+#[async_trait]
+impl Llm for DebugLlm {
+    async fn chat_once(&self, input: LlmInput) -> GatewayResult<LlmOutput> {
+        let output = self.inner.chat_once(input).await?;
+        let raw = output.get_content().trim();
+        println!("# {}_llm_raw={}", self.label, escape_json(raw));
+        print_sse_event(
+            self.stream_start.elapsed().as_millis(),
+            &SessionEvent::LlmChunk {
+                session_id: SessionId("llm-stream-session".to_string()),
+                content: format!("{}: {}", self.label, raw),
+            },
+        );
+        Ok(output)
+    }
+
+    async fn chat_stream(&self, input: LlmInput) -> GatewayResult<ByteStream> {
+        self.inner.chat_stream(input).await
+    }
 }
 
 struct FastCommanderLlmCognition {

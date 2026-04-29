@@ -1,7 +1,7 @@
 use std::{hint::black_box, sync::Arc};
 
 use async_trait::async_trait;
-use cm_agent::{
+use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
     CognitionResult, SessionId, UserId,
 };
