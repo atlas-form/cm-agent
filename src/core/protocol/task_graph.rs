@@ -48,9 +48,21 @@ pub struct WorkerReport {
     pub worker_id: WorkerId,
     pub role: String,
     pub content: String,
+    pub role_output: Option<RoleWorkOutput>,
     pub evidence: Vec<String>,
+    pub risks: Vec<String>,
     pub open_questions: Vec<String>,
     pub status: WorkerReportStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RoleWorkOutput {
+    pub summary: String,
+    pub findings: Vec<String>,
+    pub recommendations: Vec<String>,
+    pub evidence: Vec<String>,
+    pub risks: Vec<String>,
+    pub open_questions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     core::protocol::{
-        Evaluation, TaskGraph, TaskGraphId, TaskId, TaskNode, TaskNodeId, WorkerAssignment,
-        WorkerId, WorkerReport, WorkerReportStatus,
+        Evaluation, RoleWorkOutput, TaskGraph, TaskGraphId, TaskId, TaskNode, TaskNodeId,
+        WorkerAssignment, WorkerId, WorkerReport, WorkerReportStatus,
     },
     roles::RoleRoute,
 };
@@ -177,13 +177,30 @@ impl TaskGraphRuntime {
                 continue;
             }
             passed_count += 1;
-            let content = self
-                .reports
-                .get(&node.id)
-                .map(|report| report.content.trim())
-                .filter(|content| !content.is_empty())
-                .unwrap_or("无内容");
-            lines.push(format!("- {}({}): {}", node.title, node.role, content));
+            let Some(report) = self.reports.get(&node.id) else {
+                lines.push(format!("- {}({}): 无内容", node.title, node.role));
+                continue;
+            };
+            if let Some(role_output) = &report.role_output {
+                lines.push(format!(
+                    "- {}({}): {}",
+                    node.title,
+                    node.role,
+                    role_output.summary.trim()
+                ));
+                extend_synthesis_items(&mut lines, "  发现", &role_output.findings);
+                extend_synthesis_items(&mut lines, "  建议", &role_output.recommendations);
+                extend_synthesis_items(&mut lines, "  风险", &role_output.risks);
+                extend_synthesis_items(&mut lines, "  缺口", &role_output.open_questions);
+            } else {
+                let content = report.content.trim();
+                lines.push(format!(
+                    "- {}({}): {}",
+                    node.title,
+                    node.role,
+                    if content.is_empty() { "无内容" } else { content }
+                ));
+            }
         }
         if passed_count == 0 {
             lines.push("- 无。".to_string());
@@ -408,6 +425,9 @@ fn evaluate_report(report: &WorkerReport) -> Evaluation {
     if !report.open_questions.is_empty() {
         reasons.push("open questions remain".to_string());
     }
+    if let Some(role_output) = &report.role_output {
+        reasons.extend(evaluate_role_output(&report.role, role_output));
+    }
     let lower = content.to_lowercase();
     if contains_any(&lower, &["todo", "tbd", "placeholder", "无法处理", "不知道", "无数据"]) {
         reasons.push("content looks like placeholder or failure text".to_string());
@@ -423,6 +443,106 @@ fn evaluate_report(report: &WorkerReport) -> Evaluation {
             "请重新提交本节点结果：内容必须具体、非空，不能是占位或失败表达。".to_string(),
         ),
     }
+}
+
+fn evaluate_role_output(role: &str, output: &RoleWorkOutput) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let role = role.trim();
+
+    if output.summary.trim().is_empty() {
+        reasons.push("role output summary is empty".to_string());
+    }
+    if !output.open_questions.is_empty() {
+        reasons.push("role output has open questions".to_string());
+    }
+    if output
+        .summary
+        .contains("已调用")
+        || output.findings.iter().any(|item| item.contains("已调用"))
+        || output.recommendations.iter().any(|item| item.contains("已调用"))
+    {
+        reasons.push("role output claims external tool execution".to_string());
+    }
+
+    match role {
+        "data" => {
+            if output.findings.len() < 2 {
+                reasons.push("data role should provide at least two findings".to_string());
+            }
+            if output.risks.is_empty() {
+                reasons.push("data role should mark data or interpretation risks".to_string());
+            }
+        }
+        "ops" => {
+            if output.recommendations.len() < 3 {
+                reasons.push("ops role should provide at least three recommendations".to_string());
+            }
+        }
+        "design" => {
+            if output.recommendations.is_empty() {
+                reasons.push("design role should provide visual or page recommendations".to_string());
+            }
+            if !contains_any(
+                &format!(
+                    "{} {}",
+                    output.summary,
+                    output.recommendations.join(" ")
+                ),
+                &["视觉", "页面", "素材", "版式", "主图", "详情页", "设计"],
+            ) {
+                reasons.push("design role output lacks design-specific content".to_string());
+            }
+        }
+        "accounting" => {
+            if output.risks.is_empty() {
+                reasons.push("accounting role should provide budget or financial risks".to_string());
+            }
+            if !contains_any(
+                &format!("{} {}", output.summary, output.findings.join(" ")),
+                &["预算", "成本", "利润", "roi", "ROI", "现金流", "财务"],
+            ) {
+                reasons.push("accounting role output lacks financial content".to_string());
+            }
+        }
+        "creative" => {
+            if output.recommendations.is_empty() {
+                reasons.push("creative role should provide usable creative directions".to_string());
+            }
+        }
+        "service" => {
+            if output.recommendations.is_empty() {
+                reasons.push("service role should provide scripts, SOP, or escalation steps".to_string());
+            }
+        }
+        "engineering" => {
+            if output.risks.is_empty() {
+                reasons.push("engineering role should provide technical risks or rollback boundaries".to_string());
+            }
+        }
+        "web" => {
+            if output.recommendations.is_empty() {
+                reasons.push("web role should provide SEO, keyword, or conversion recommendations".to_string());
+            }
+        }
+        _ => {}
+    }
+
+    reasons
+}
+
+fn extend_synthesis_items(lines: &mut Vec<String>, label: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    lines.push(format!(
+        "{label}: {}",
+        items
+            .iter()
+            .filter(|item| !item.trim().is_empty())
+            .map(|item| item.trim().to_string())
+            .collect::<Vec<_>>()
+            .join("；")
+    ));
 }
 
 fn contains_any(value: &str, needles: &[&str]) -> bool {
@@ -611,6 +731,113 @@ mod tests {
     }
 
     #[test]
+    fn evaluator_rejects_incomplete_role_output_for_data_role() {
+        let graph = plan_task_graph(&TaskId("task-10".to_string()), "分析转化率下降", None);
+        let mut runtime = TaskGraphRuntime::new(graph);
+        let node = runtime.ready_nodes().remove(0);
+        let assignment = runtime.build_assignment(&node);
+        runtime.mark_running(&assignment);
+        let mut report = report_from_assignment(&assignment, "数据结论不足");
+        report.role_output = Some(RoleWorkOutput {
+            summary: "数据结论不足".to_string(),
+            findings: vec!["转化下降".to_string()],
+            recommendations: Vec::new(),
+            evidence: Vec::new(),
+            risks: Vec::new(),
+            open_questions: Vec::new(),
+        });
+
+        let outcome = runtime.apply_report(report);
+
+        assert!(matches!(outcome, EvaluationOutcome::Rework { .. }));
+        assert!(matches!(
+            runtime.states.get(&node.id),
+            Some(TaskNodeRuntimeState::Pending)
+        ));
+    }
+
+    #[test]
+    fn evaluator_passes_complete_ops_role_output() {
+        let graph = TaskGraph {
+            graph_id: TaskGraphId("graph-task-11".to_string()),
+            root_task: "给运营调整方案".to_string(),
+            nodes: vec![node(
+                "ops",
+                "ops",
+                "运营方案",
+                "给运营调整方案".to_string(),
+                Vec::new(),
+                2,
+            )],
+        };
+        let mut runtime = TaskGraphRuntime::new(graph);
+        let node = runtime.ready_nodes().remove(0);
+        let assignment = runtime.build_assignment(&node);
+        runtime.mark_running(&assignment);
+        let mut report = report_from_assignment(&assignment, "运营方案完整");
+        report.role_output = Some(RoleWorkOutput {
+            summary: "先用三档优先级推进运营调整。".to_string(),
+            findings: vec!["当前目标是提升转化".to_string()],
+            recommendations: vec![
+                "P1 修正首屏卖点".to_string(),
+                "P2 调整投放人群".to_string(),
+                "P3 每日复盘转化".to_string(),
+            ],
+            evidence: vec!["原始任务".to_string()],
+            risks: vec!["预算消耗需设置止损线".to_string()],
+            open_questions: Vec::new(),
+        });
+
+        let outcome = runtime.apply_report(report);
+
+        assert!(matches!(outcome, EvaluationOutcome::Passed(_)));
+    }
+
+    #[test]
+    fn synthesis_uses_structured_role_output_sections() {
+        let graph = TaskGraph {
+            graph_id: TaskGraphId("graph-task-12".to_string()),
+            root_task: "给运营调整方案".to_string(),
+            nodes: vec![node(
+                "ops",
+                "ops",
+                "运营方案",
+                "给运营调整方案".to_string(),
+                Vec::new(),
+                2,
+            )],
+        };
+        let mut runtime = TaskGraphRuntime::new(graph);
+        let node = runtime.ready_nodes().remove(0);
+        let assignment = runtime.build_assignment(&node);
+        runtime.mark_running(&assignment);
+        let mut report = report_from_assignment(&assignment, "运营方案完整");
+        report.role_output = Some(RoleWorkOutput {
+            summary: "运营先聚焦转化链路。".to_string(),
+            findings: vec!["首屏承接弱".to_string()],
+            recommendations: vec![
+                "P1 优化首屏".to_string(),
+                "P2 调整人群".to_string(),
+                "P3 复盘素材".to_string(),
+            ],
+            evidence: vec!["原始任务".to_string()],
+            risks: vec!["不要同时改太多变量".to_string()],
+            open_questions: Vec::new(),
+        });
+        assert!(matches!(
+            runtime.apply_report(report),
+            EvaluationOutcome::Passed(_)
+        ));
+
+        let output = runtime.synthesize();
+
+        assert!(output.contains("运营先聚焦转化链路"));
+        assert!(output.contains("发现: 首屏承接弱"));
+        assert!(output.contains("建议: P1 优化首屏"));
+        assert!(output.contains("风险: 不要同时改太多变量"));
+    }
+
+    #[test]
     fn planner_can_make_ops_depend_on_design_and_accounting() {
         let graph = plan_task_graph(
             &TaskId("task-9".to_string()),
@@ -638,7 +865,9 @@ mod tests {
             worker_id: assignment.worker_id.clone(),
             role: assignment.role.clone(),
             content: content.to_string(),
+            role_output: None,
             evidence: Vec::new(),
+            risks: Vec::new(),
             open_questions: Vec::new(),
             status: WorkerReportStatus::Completed,
         }

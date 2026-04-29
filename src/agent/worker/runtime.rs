@@ -236,14 +236,32 @@ impl Worker {
                         task_id: TaskId(task.id.clone()),
                         worker_id: WorkerId(self.id.0.clone()),
                         role: assignment.role.clone(),
-                        content: self
+                        content: self.memory.state.get("last_cognition_output").map(|output| {
+                            parse_worker_role_output(output).content
+                        }).unwrap_or_default(),
+                        role_output: self
                             .memory
                             .state
                             .get("last_cognition_output")
-                            .map(|output| extract_worker_content(output))
+                            .and_then(|output| parse_worker_role_output(output).role_output),
+                        evidence: self
+                            .memory
+                            .state
+                            .get("last_cognition_output")
+                            .map(|output| parse_worker_role_output(output).evidence)
                             .unwrap_or_default(),
-                        evidence: Vec::new(),
-                        open_questions: Vec::new(),
+                        risks: self
+                            .memory
+                            .state
+                            .get("last_cognition_output")
+                            .map(|output| parse_worker_role_output(output).risks)
+                            .unwrap_or_default(),
+                        open_questions: self
+                            .memory
+                            .state
+                            .get("last_cognition_output")
+                            .map(|output| parse_worker_role_output(output).open_questions)
+                            .unwrap_or_default(),
                         status: crate::core::protocol::WorkerReportStatus::Completed,
                     },
                 })
@@ -284,7 +302,9 @@ impl Worker {
                         worker_id: WorkerId(self.id.0.clone()),
                         role: assignment.role.clone(),
                         content: reason.clone(),
+                        role_output: None,
                         evidence: Vec::new(),
+                        risks: Vec::new(),
                         open_questions: vec![reason.clone()],
                         status: crate::core::protocol::WorkerReportStatus::Failed,
                     },
@@ -403,6 +423,167 @@ fn extract_worker_content(output: &str) -> String {
         .unwrap_or_else(|| trimmed.to_string())
 }
 
+#[derive(Debug, Clone, Default)]
+struct ParsedWorkerRoleOutput {
+    content: String,
+    role_output: Option<crate::core::protocol::RoleWorkOutput>,
+    evidence: Vec<String>,
+    risks: Vec<String>,
+    open_questions: Vec<String>,
+}
+
+fn parse_worker_role_output(output: &str) -> ParsedWorkerRoleOutput {
+    let trimmed = output.trim();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return ParsedWorkerRoleOutput {
+            content: trimmed.to_string(),
+            ..ParsedWorkerRoleOutput::default()
+        };
+    };
+
+    let role_output = parse_role_work_output(&value);
+    let evidence = role_output
+        .as_ref()
+        .map(|output| output.evidence.clone())
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| string_array_field(&value, "evidence"));
+    let risks = role_output
+        .as_ref()
+        .map(|output| output.risks.clone())
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| string_array_field(&value, "risks"));
+    let open_questions = role_output
+        .as_ref()
+        .map(|output| output.open_questions.clone())
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| string_array_field(&value, "open_questions"));
+    let content = role_output
+        .as_ref()
+        .map(format_role_work_output_content)
+        .filter(|content| !content.trim().is_empty())
+        .unwrap_or_else(|| extract_worker_content(trimmed));
+
+    ParsedWorkerRoleOutput {
+        content,
+        role_output,
+        evidence,
+        risks,
+        open_questions,
+    }
+}
+
+fn parse_role_work_output(value: &serde_json::Value) -> Option<crate::core::protocol::RoleWorkOutput> {
+    let source = value.get("role_output").unwrap_or(value);
+    if let Some(text) = source.as_str() {
+        let summary = text.trim().to_string();
+        return (!summary.is_empty()).then_some(crate::core::protocol::RoleWorkOutput {
+            summary,
+            evidence: string_array_field(value, "evidence"),
+            risks: string_array_field(value, "risks"),
+            open_questions: string_array_field(value, "open_questions"),
+            ..crate::core::protocol::RoleWorkOutput::default()
+        });
+    }
+
+    if !source.is_object() {
+        return None;
+    }
+
+    let summary = string_field(source, "summary")
+        .or_else(|| string_field(source, "结论"))
+        .or_else(|| string_field(value, "summary"))
+        .unwrap_or_default();
+    let findings = string_array_field(source, "findings");
+    let recommendations = string_array_field(source, "recommendations")
+        .into_iter()
+        .chain(string_array_field(source, "actions"))
+        .collect::<Vec<_>>();
+    let evidence = string_array_field(source, "evidence")
+        .into_iter()
+        .chain(string_array_field(value, "evidence"))
+        .collect::<Vec<_>>();
+    let risks = string_array_field(source, "risks")
+        .into_iter()
+        .chain(string_array_field(value, "risks"))
+        .collect::<Vec<_>>();
+    let open_questions = string_array_field(source, "open_questions")
+        .into_iter()
+        .chain(string_array_field(value, "open_questions"))
+        .collect::<Vec<_>>();
+
+    let output = crate::core::protocol::RoleWorkOutput {
+        summary,
+        findings,
+        recommendations,
+        evidence,
+        risks,
+        open_questions,
+    };
+    has_role_work_output_content(&output).then_some(output)
+}
+
+fn has_role_work_output_content(output: &crate::core::protocol::RoleWorkOutput) -> bool {
+    !output.summary.trim().is_empty()
+        || !output.findings.is_empty()
+        || !output.recommendations.is_empty()
+        || !output.evidence.is_empty()
+        || !output.risks.is_empty()
+        || !output.open_questions.is_empty()
+}
+
+fn format_role_work_output_content(output: &crate::core::protocol::RoleWorkOutput) -> String {
+    let mut sections = Vec::new();
+    if !output.summary.trim().is_empty() {
+        sections.push(output.summary.trim().to_string());
+    }
+    extend_section(&mut sections, "发现", &output.findings);
+    extend_section(&mut sections, "建议", &output.recommendations);
+    extend_section(&mut sections, "风险", &output.risks);
+    extend_section(&mut sections, "缺口", &output.open_questions);
+    sections.join("\n")
+}
+
+fn extend_section(lines: &mut Vec<String>, title: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    lines.push(format!(
+        "{}：{}",
+        title,
+        items
+            .iter()
+            .filter(|item| !item.trim().is_empty())
+            .map(|item| item.trim().to_string())
+            .collect::<Vec<_>>()
+            .join("；")
+    ));
+}
+
+fn string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn string_array_field(value: &serde_json::Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
 fn new_task_id() -> String {
     use std::{
         sync::atomic::{AtomicU64, Ordering},
@@ -435,4 +616,49 @@ fn next_message_id() -> MessageId {
     let sequence = NEXT_MESSAGE_COUNTER.fetch_add(1, Ordering::Relaxed);
 
     MessageId(format!("msg-{millis}-{sequence}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_worker_role_output;
+
+    #[test]
+    fn parses_structured_role_work_output() {
+        let parsed = parse_worker_role_output(
+            r#"{
+              "decision": {"kind": "NoAction"},
+              "role_output": {
+                "summary": "运营方案需要先拆优先级",
+                "findings": ["预算有限", "目标明确"],
+                "recommendations": ["P1先做转化链路", "P2补素材", "P3复盘"],
+                "evidence": ["assignment.input.data"],
+                "risks": ["预算消耗过快"],
+                "open_questions": []
+              }
+            }"#,
+        );
+
+        let role_output = parsed.role_output.expect("role output should parse");
+        assert_eq!(role_output.summary, "运营方案需要先拆优先级");
+        assert_eq!(role_output.recommendations.len(), 3);
+        assert_eq!(parsed.evidence, vec!["assignment.input.data"]);
+        assert_eq!(parsed.risks, vec!["预算消耗过快"]);
+        assert!(parsed.content.contains("P1先做转化链路"));
+    }
+
+    #[test]
+    fn wraps_legacy_string_role_output_as_summary() {
+        let parsed = parse_worker_role_output(
+            r#"{
+              "decision": {"kind": "NoAction"},
+              "role_output": "这是旧格式角色产物",
+              "evidence": ["legacy evidence"]
+            }"#,
+        );
+
+        let role_output = parsed.role_output.expect("legacy role output should parse");
+        assert_eq!(role_output.summary, "这是旧格式角色产物");
+        assert_eq!(role_output.evidence, vec!["legacy evidence"]);
+        assert_eq!(parsed.content, "这是旧格式角色产物");
+    }
 }
