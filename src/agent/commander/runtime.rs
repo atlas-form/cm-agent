@@ -33,6 +33,12 @@ pub struct CommanderChannels {
     pub event_tx: Option<tokio::sync::mpsc::Sender<SessionEvent>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CommanderOptions {
+    pub fast_route_enabled: bool,
+    pub fast_route_min_score: f32,
+}
+
 pub struct Commander {
     id: AgentId,
     world_id: AgentId,
@@ -47,6 +53,8 @@ pub struct Commander {
     memory: TaskMemory,
     session_context: Arc<dyn CommanderSessionContext>,
     role_router: RoleRouter,
+    fast_route_enabled: bool,
+    fast_route_min_score: f32,
     active_collaboration: Option<RoleCollaborationPlan>,
     active_collaboration_task_id: Option<TaskId>,
     pending_support_workers: Vec<WorkerId>,
@@ -62,6 +70,7 @@ impl Commander {
         channels: CommanderChannels,
         session_context: Arc<dyn CommanderSessionContext>,
         role_router: RoleRouter,
+        options: CommanderOptions,
     ) -> Self {
         Self {
             id,
@@ -77,6 +86,8 @@ impl Commander {
             memory: TaskMemory::default(),
             session_context,
             role_router,
+            fast_route_enabled: options.fast_route_enabled,
+            fast_route_min_score: options.fast_route_min_score,
             active_collaboration: None,
             active_collaboration_task_id: None,
             pending_support_workers: Vec::new(),
@@ -220,6 +231,12 @@ impl Commander {
 
     async fn step_thinking(&mut self) {
         let role_route = self.current_role_route();
+        if self.fast_route_enabled && self.try_fast_route(role_route.as_ref()) {
+            self.phase = CommanderPhase::Idle;
+            self.state = CommanderState::Idle;
+            return;
+        }
+
         let input = self.build_cognition_input(role_route.as_ref());
 
         let routed = match self.cognition.evaluate(input).await {
@@ -339,6 +356,42 @@ impl Commander {
         worker_tx.send(task_message).is_ok()
     }
 
+    fn try_fast_route(&mut self, role_route: Option<&RoleRoute>) -> bool {
+        let Some(role_route) = role_route else {
+            return false;
+        };
+        if primary_route_score(role_route) < self.fast_route_min_score {
+            return false;
+        }
+        let Some(current_task) = self.current_task.clone() else {
+            return false;
+        };
+
+        let target_worker = primary_worker_id(role_route);
+        if self.session_context.get_worker_tx(&target_worker).is_none() {
+            return false;
+        }
+
+        let task = TaskSpec {
+            id: TaskId(current_task.id),
+            description: current_task.description,
+        };
+        self.prepare_collaboration(Some(role_route), Some(&target_worker));
+        if !self.dispatch_task_to_worker(task, Some(target_worker)) {
+            let _ = self.sender.send(Message::new_with_context(
+                next_message_id(),
+                self.current_context.clone(),
+                self.id.clone(),
+                self.world_id.clone(),
+                Payload::Text {
+                    content: "任务分发失败：未找到可用 worker".to_string(),
+                },
+            ));
+        }
+
+        true
+    }
+
     fn prepare_collaboration(
         &mut self,
         role_route: Option<&RoleRoute>,
@@ -364,6 +417,18 @@ impl Commander {
                 .collect::<Vec<_>>()
                 .join(", "),
         );
+        if plan.support.is_empty() {
+            return;
+        }
+        self.emit_event(SessionEvent::CollaborationStarted {
+            session_id: self.session_id_from_context(&self.current_context),
+            primary_worker_id: plan.primary.worker_id.clone(),
+            support_worker_ids: plan
+                .support
+                .iter()
+                .map(|assignment| assignment.worker_id.clone())
+                .collect(),
+        });
         self.active_collaboration = Some(plan);
         self.active_collaboration_task_id = None;
         self.pending_support_workers.clear();
@@ -390,15 +455,6 @@ impl Commander {
                     build_contribution(&plan.primary, task_id, output),
                 );
             }
-            self.emit_event(SessionEvent::CollaborationStarted {
-                session_id: self.session_id_from_context(context),
-                primary_worker_id: plan.primary.worker_id.clone(),
-                support_worker_ids: plan
-                    .support
-                    .iter()
-                    .map(|assignment| assignment.worker_id.clone())
-                    .collect(),
-            });
             self.emit_event(SessionEvent::CollaborationWorkerFinished {
                 session_id: self.session_id_from_context(context),
                 worker_id: worker_id.clone(),
@@ -706,10 +762,19 @@ fn primary_worker_id(role_route: &RoleRoute) -> WorkerId {
     WorkerId(format!("worker.{}", role_route.primary_runtime_role))
 }
 
+fn primary_route_score(role_route: &RoleRoute) -> f32 {
+    role_route
+        .scores
+        .iter()
+        .find(|score| score.role_id == role_route.primary_role)
+        .map(|score| score.score)
+        .unwrap_or(0.0)
+}
+
 fn final_worker_message(task_id: &TaskId, output: Option<&str>) -> String {
     output
         .filter(|value| !value.trim().is_empty())
-        .map(ToString::to_string)
+        .map(extract_worker_content)
         .unwrap_or_else(|| format!("任务已完成: {}", task_id.0))
 }
 
@@ -718,7 +783,30 @@ fn build_contribution(
     task_id: &TaskId,
     output: &str,
 ) -> RoleContribution {
-    RoleContribution::new(assignment, task_id.clone(), output.trim().to_string())
+    RoleContribution::new(assignment, task_id.clone(), extract_worker_content(output))
+}
+
+fn extract_worker_content(output: &str) -> String {
+    let trimmed = output.trim();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return trimmed.to_string();
+    };
+
+    value
+        .pointer("/decision/action/parameters/answer")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            value
+                .pointer("/role_output")
+                .and_then(|value| value.as_str())
+        })
+        .or_else(|| {
+            value
+                .pointer("/rationale/primary")
+                .and_then(|value| value.as_str())
+        })
+        .map(ToString::to_string)
+        .unwrap_or_else(|| trimmed.to_string())
 }
 
 fn next_message_id() -> MessageId {

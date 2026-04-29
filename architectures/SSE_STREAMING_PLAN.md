@@ -1,195 +1,125 @@
-# SSE Streaming Plan
+# Streaming Follow-up Plan
 
-本文是下一阶段实现 SSE / streaming 输出的设计说明。
+基础 session event stream 已完成：
 
-目标不是把 web server 写进 agent core。
+- `SessionEvent`
+- bounded event channel
+- `AgentManager::run_stream`
+- `AgentSession::run_stream`
+- runtime lifecycle events
+- worker started / finished events
+- role collaboration events
 
-目标是让 agent core 暴露统一的 session event stream，web server 只负责把 event 转成 SSE。
+本文只保留未完成的 streaming 后续事项。
 
-## 核心结构
+## 目标
 
-现有结构不变：
+让 agent core 继续只暴露 `SessionEvent`，不引入 HTTP / SSE 框架依赖。
 
-```text
-AgentManager
-  -> AgentSession
-      -> SessionRuntime
-          -> SessionContext
-          -> Commander
-          -> Worker
-```
+外部 web server 负责：
 
-新增输出通道：
+- 把 `SessionEvent` 映射为 SSE event。
+- 在 client 断开时取消 session。
+- 根据业务需要处理重连、鉴权和前端协议。
 
-```text
-SessionRuntime
-  -> SessionEvent channel
-      -> web server
-          -> SSE
-```
+agent core 负责：
 
-## 核心原则
+- 可取消正在运行的 session。
+- 输出真实 LLM token chunk。
+- 保持 bounded backpressure，不让慢客户端无限堆内存。
 
-- agent core 不依赖 HTTP。
-- agent core 不依赖 SSE 框架。
-- `SessionRuntime` 只发 `SessionEvent`。
-- web server 把 `SessionEvent` 映射为 SSE event。
-- client 断开时，web server 要能取消 session。
-- 慢客户端不能导致无限内存堆积。
+## 未完成项
 
-## SessionEvent
+### 1. Cancel session
 
-第一版事件模型：
+新增 API：
 
 ```rust
-pub enum SessionEvent {
-    Started {
-        session_id: SessionId,
-    },
-    CommanderThinking {
-        session_id: SessionId,
-    },
-    WorkerStarted {
-        session_id: SessionId,
-        worker_id: WorkerId,
-        task_id: TaskId,
-    },
-    LlmChunk {
-        session_id: SessionId,
-        content: String,
-    },
-    WorkerFinished {
-        session_id: SessionId,
-        worker_id: WorkerId,
-        task_id: TaskId,
-    },
-    CollaborationStarted {
-        session_id: SessionId,
-        primary_worker_id: WorkerId,
-        support_worker_ids: Vec<WorkerId>,
-    },
-    CollaborationWorkerStarted {
-        session_id: SessionId,
-        worker_id: WorkerId,
-        task_id: TaskId,
-    },
-    CollaborationWorkerFinished {
-        session_id: SessionId,
-        worker_id: WorkerId,
-        task_id: TaskId,
-        content: Option<String>,
-    },
-    CollaborationFinished {
-        session_id: SessionId,
-    },
-    Output {
-        session_id: SessionId,
-        content: String,
-    },
-    Failed {
-        session_id: SessionId,
-        reason: String,
-    },
-    Finished {
-        session_id: SessionId,
-    },
+AgentManager::cancel_session(session_id: &SessionId) -> Result<()>
+```
+
+需要调整：
+
+- `AgentManager.active_sessions` 不能再是 `HashMap<SessionId, ()>`。
+- active registry 需要保存可取消 handle，例如 shutdown sender / abort handle / session handle。
+- `run_stream` 产生的后台任务必须能收到 cancel signal。
+- cancel 后需要关闭 event channel，并从 active registry 移除 session。
+
+第一版建议：
+
+```rust
+struct ActiveSession {
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
+    task: tokio::task::JoinHandle<()>,
 }
 ```
 
-第一阶段可以先不接真实 LLM stream，只把 runtime 阶段事件发出来。
+验收：
 
-真实 LLM streaming 后续再把 `model-gateway-rs` 的 stream chunk 映射到 `SessionEvent::LlmChunk`。
+- stream 正在运行时调用 `cancel_session`，runtime 停止。
+- receiver 最终结束或收到 `SessionEvent::Failed { reason: "cancelled" }`。
+- `active_session_count()` 回到 `0`。
 
-## API 方向
+### 2. LLM token stream
 
-保留普通一次性调用：
-
-```rust
-AgentManager::run_request(request) -> SessionResult
-```
-
-新增 streaming 调用：
+当前已有事件：
 
 ```rust
-AgentManager::run_stream(request) -> SessionEventStream
+SessionEvent::LlmChunk {
+    session_id: SessionId,
+    content: String,
+}
 ```
 
-其中 `SessionEventStream` 可以先是：
+缺失：
 
-```rust
-pub type SessionEventStream = tokio::sync::mpsc::Receiver<SessionEvent>;
-```
+- cognition 层的 streaming trait 或可选 streaming 方法。
+- `model-gateway-rs` stream chunk 到 `SessionEvent::LlmChunk` 的映射。
+- Commander / Worker 如何传递 event sender。
+- token chunk 合并策略。
 
-后续如果要更通用，再改成 `Stream<Item = SessionEvent>`。
+第一版建议：
 
-## Backpressure
+- 保留现有 `Cognition::evaluate`。
+- 新增可选 streaming adapter，不强制所有 cognition 实现。
+- 只在真实 LLM cognition 中发 `LlmChunk`。
+- 非 streaming cognition 继续只返回最终 output。
 
-事件 channel 不要用无限队列。
+验收：
 
-建议第一版使用 bounded channel：
+- 使用真实 LLM smoke example 时能看到 `llm_chunk` event。
+- 普通 fake cognition 测试不受影响。
+- token chunk 不能跳过最终 `Output / Finished`。
 
-```rust
-tokio::sync::mpsc::channel(1024)
-```
+### 3. Backpressure stress
 
-策略：
+当前 event channel 已是 bounded。
 
-- 关键事件不能丢：`Started / Output / Failed / Finished`
-- 高频 token chunk 可以合并
-- 如果 channel 满，优先等待，而不是无限堆内存
+还需要补：
 
-## Cancel
+- 慢消费者测试。
+- 高频 `LlmChunk` 合并或等待策略。
+- 关键事件不丢失的测试。
 
-SSE client 断开后，web server 需要取消 session。
+规则：
 
-第一版可以支持：
+- `Started / Output / Failed / Finished` 不能丢。
+- `LlmChunk` 可以合并。
+- 不使用 unbounded queue 承载 streaming token。
 
-```rust
-AgentManager::cancel_session(session_id)
-```
+验收：
 
-取消后：
+- 模拟慢 receiver 时内存不无限增长。
+- 关键事件仍能到达。
+- runtime 不因为普通慢客户端永久卡死。
 
-- 给 `SessionRuntime` 发 shutdown signal
-- 关闭 event channel
-- 从 active session registry 移除
+## 不做
 
-## 实现步骤
+本阶段不做：
 
-1. 在 core protocol 增加 `SessionEvent`。
-2. 在 `SessionRuntimeInput` 增加可选 event sender。
-3. `SessionRuntime` 启动时发送 `Started`。
-4. Commander / Worker 关键阶段发送事件。
-5. `run_request` 保持原样。
-6. 新增 `run_stream`，返回 event receiver。
-7. 新增 `src/bin/stream_smoke.rs`，不用 web，只打印 event stream。
-8. 压测 streaming event channel，确认不会造成无限内存增长。
-
-## 不做事项
-
-第一版已完成：
-
-- 基础 session event stream
-- `WorkerStarted / WorkerFinished`
-- role collaboration events
-
-第一版不做：
-
-- web server
-- HTTP SSE 框架绑定
-- 真实 LLM token stream
+- HTTP server
+- SSE 框架绑定
 - 前端协议
 - 断点续传
 - 多节点分布式 session
-
-## 判断标准
-
-本阶段成功标准：
-
-```text
-不用真实 LLM
-不用 web server
-一个 session 能输出完整事件流
-10000 个 session event stream 不阻塞 runtime
-普通 run_request 不受影响
-```
+- 数据库持久化 event log

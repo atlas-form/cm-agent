@@ -138,14 +138,8 @@ impl Cognition for CapturingWorkerSetCognition {
 
 #[tokio::test]
 async fn manager_initializes_builtin_roles_for_each_session() {
-    let available_workers = Arc::new(Mutex::new(None));
-    let commander_capture = Arc::clone(&available_workers);
     let manager = AgentManager::new(AgentManagerConfig::new(
-        Arc::new(move || {
-            Ok(Box::new(CapturingCommanderCognition {
-                available_workers: Arc::clone(&commander_capture),
-            }))
-        }),
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
         Arc::new(|| Ok(Box::new(NoopWorkerCognition))),
     ));
 
@@ -160,10 +154,6 @@ async fn manager_initializes_builtin_roles_for_each_session() {
         .await
         .expect("request should complete");
 
-    assert_eq!(
-        available_workers.lock().expect("lock capture").as_deref(),
-        Some("9")
-    );
     assert_eq!(manager.active_session_count(), 0);
 }
 

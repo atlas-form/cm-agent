@@ -6,7 +6,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 use crate::{
     SessionContext,
     agent::{
-        commander::{Commander, CommanderChannels},
+        commander::{Commander, CommanderChannels, CommanderOptions},
         worker::Worker,
     },
     agent_error::{Result, SettingsError},
@@ -28,6 +28,8 @@ pub type SessionEventRx = tokio_mpsc::Receiver<SessionEvent>;
 pub struct SessionRuntimeConfig {
     pub response_timeout: Duration,
     pub event_buffer: usize,
+    pub commander_fast_route: bool,
+    pub commander_fast_route_min_score: f32,
 }
 
 impl Default for SessionRuntimeConfig {
@@ -35,6 +37,8 @@ impl Default for SessionRuntimeConfig {
         Self {
             response_timeout: Duration::from_secs(300),
             event_buffer: 1024,
+            commander_fast_route: true,
+            commander_fast_route_min_score: 2.0,
         }
     }
 }
@@ -133,6 +137,10 @@ impl SessionRuntime {
             },
             session_context.clone(),
             RoleRouter::new(role_catalog),
+            CommanderOptions {
+                fast_route_enabled: input.config.commander_fast_route,
+                fast_route_min_score: input.config.commander_fast_route_min_score,
+            },
         );
 
         let commander_loop = tokio::spawn(async move {

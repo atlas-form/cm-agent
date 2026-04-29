@@ -235,7 +235,7 @@ mod tests {
             }],
         });
 
-        assert!(prompt.contains("prompt_source: prompts/zh/cognition/final_synthesis.md"));
+        assert!(prompt.contains("输出边界"));
         assert!(prompt.contains("分析数据并写文案"));
         assert!(prompt.contains("数据贡献"));
     }

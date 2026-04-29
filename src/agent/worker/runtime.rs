@@ -189,7 +189,7 @@ impl Worker {
                         .set_state("last_action_status", format!("{:?}", result.status));
                 }
                 self.current_action = None;
-                self.phase = WorkerPhase::Thinking;
+                self.phase = WorkerPhase::Finished;
                 self.memory.push_progress("action completed");
             }
             ActionState::Aborted => {

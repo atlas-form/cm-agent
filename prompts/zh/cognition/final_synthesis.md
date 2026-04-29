@@ -1,7 +1,3 @@
-# Final Synthesis Template
-
-prompt_source: prompts/zh/cognition/final_synthesis.md
-
 任务已完成: {{task_id}}；支持角色已完成: {{support_workers}}
 
 用户任务：

@@ -115,6 +115,18 @@ AgentManager
 
 Commander 在 `SessionRuntime` 内作为 async task 运行。
 
+默认 Commander 使用 fast route：
+
+```text
+HumanCommand
+  -> RoleRouter
+  -> worker.{primary_runtime_role}
+```
+
+因为当前产品内置固定 9 个 roles，Commander 不应该默认调用 LLM 来挑选 worker。
+
+LLM Commander 只作为诊断、实验或后续复杂 fallback 使用。
+
 ## Worker
 
 仍然是执行生命体。
