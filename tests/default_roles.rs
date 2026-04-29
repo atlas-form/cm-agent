@@ -51,6 +51,38 @@ impl Cognition for CapturingCommanderCognition {
     }
 }
 
+struct RouteWithoutTargetCommanderCognition;
+
+#[async_trait]
+impl Cognition for RouteWithoutTargetCommanderCognition {
+    async fn evaluate(&self, _input: CognitionInput) -> CognitionResult {
+        CognitionResult::Success(json!({
+            "decision": {
+                "kind": "RouteTask",
+                "route": {
+                    "target_agent_id": "",
+                    "task_summary": "route without target",
+                    "goal": "let role router choose the worker",
+                    "constraints": []
+                },
+                "handoff": {
+                    "why_this_agent": "router should choose",
+                    "expected_output": "done"
+                },
+                "clarification": {
+                    "question": ""
+                }
+            },
+            "confidence": 1.0,
+            "rationale": {
+                "primary": "role router fallback test",
+                "evidence": [],
+                "alternatives_considered": []
+            }
+        }))
+    }
+}
+
 struct NoopWorkerCognition;
 
 #[async_trait]
@@ -187,4 +219,34 @@ async fn role_aware_worker_factory_receives_each_builtin_role() {
     assert!(constructed_roles.contains("ops"));
     assert!(constructed_roles.contains("data"));
     assert!(constructed_roles.contains("web"));
+}
+
+#[tokio::test]
+async fn commander_uses_role_router_when_target_worker_is_missing() {
+    let runtime_role = Arc::new(Mutex::new(None));
+    let worker_capture = Arc::clone(&runtime_role);
+    let manager = AgentManager::new(AgentManagerConfig::new(
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
+        Arc::new(move || {
+            Ok(Box::new(CapturingWorkerCognition {
+                runtime_role: Arc::clone(&worker_capture),
+            }))
+        }),
+    ));
+
+    manager
+        .run_request(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-router".to_string()),
+            input: "帮我分析漏斗指标和转化率下降原因".to_string(),
+        })
+        .await
+        .expect("request should complete");
+
+    assert_eq!(
+        runtime_role.lock().expect("lock role capture").as_deref(),
+        Some("data")
+    );
 }

@@ -15,7 +15,7 @@ use crate::{
             TaskSpec,
         },
     },
-    roles::RoleProfile,
+    roles::{RoleCatalog, RoleProfile, RoleRouter},
 };
 
 pub type SessionEventTx = tokio_mpsc::Sender<SessionEvent>;
@@ -89,6 +89,13 @@ impl SessionRuntime {
 
         let mut worker_txs = Vec::new();
         let mut worker_loops = Vec::new();
+        let role_catalog = RoleCatalog::new(
+            input
+                .workers
+                .iter()
+                .map(|worker| worker.role.clone())
+                .collect(),
+        );
         for worker_input in input.workers {
             let profile = worker_input.role.to_worker_profile();
             let (worker_tx, worker_rx) = tokio_mpsc::unbounded_channel::<Message>();
@@ -119,6 +126,7 @@ impl SessionRuntime {
             commander_rx,
             response_tx,
             session_context.clone(),
+            RoleRouter::new(role_catalog),
         );
 
         let commander_loop = tokio::spawn(async move {

@@ -15,6 +15,7 @@ use crate::{
             WorkerId, WorkerProfile,
         },
     },
+    roles::{RoleRoute, RoleRouteInput, RoleRouter},
 };
 
 pub trait CommanderSessionContext: Send + Sync {
@@ -35,6 +36,7 @@ pub struct Commander {
     sender: MessageTx,
     memory: TaskMemory,
     session_context: Arc<dyn CommanderSessionContext>,
+    role_router: RoleRouter,
 }
 
 impl Commander {
@@ -45,6 +47,7 @@ impl Commander {
         receiver: MessageRx,
         sender: MessageTx,
         session_context: Arc<dyn CommanderSessionContext>,
+        role_router: RoleRouter,
     ) -> Self {
         Self {
             id,
@@ -58,6 +61,7 @@ impl Commander {
             sender,
             memory: TaskMemory::default(),
             session_context,
+            role_router,
         }
     }
 
@@ -162,7 +166,8 @@ impl Commander {
     }
 
     async fn step_thinking(&mut self) {
-        let input = self.build_cognition_input();
+        let role_route = self.current_role_route();
+        let input = self.build_cognition_input(role_route.as_ref());
 
         let routed = match self.cognition.evaluate(input).await {
             CognitionResult::Success(output) => {
@@ -183,7 +188,10 @@ impl Commander {
 
         match routed.intent {
             DecisionIntent::ExecuteTask { task } => {
-                if !self.dispatch_task_to_worker(task, routed.target_worker_id) {
+                let target_worker = routed
+                    .target_worker_id
+                    .or_else(|| role_route.as_ref().map(primary_worker_id));
+                if !self.dispatch_task_to_worker(task, target_worker) {
                     let _ = self.sender.send(Message::new_with_context(
                         next_message_id(),
                         self.current_context.clone(),
@@ -277,7 +285,7 @@ impl Commander {
         worker_tx.send(task_message).is_ok()
     }
 
-    fn build_cognition_input(&self) -> CognitionInput {
+    fn build_cognition_input(&self, role_route: Option<&RoleRoute>) -> CognitionInput {
         let intent = Intent {
             id: self
                 .current_task
@@ -295,6 +303,25 @@ impl Commander {
         let mut metadata = HashMap::new();
         metadata.insert("state".to_string(), format!("{:?}", self.state));
         metadata.insert("phase".to_string(), format!("{:?}", self.phase));
+        if let Some(role_route) = role_route {
+            metadata.insert(
+                "role_route.primary_role".to_string(),
+                role_route.primary_role.0.clone(),
+            );
+            metadata.insert(
+                "role_route.primary_runtime_role".to_string(),
+                role_route.primary_runtime_role.clone(),
+            );
+            metadata.insert(
+                "role_route.support_roles".to_string(),
+                role_route
+                    .support_roles
+                    .iter()
+                    .map(|role| role.0.clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
         let worker_profiles = self.session_context.list_worker_profiles();
         metadata.insert(
             "available_workers.count".to_string(),
@@ -347,6 +374,20 @@ impl Commander {
             context: Context { facts, metadata },
         }
     }
+
+    fn current_role_route(&self) -> Option<RoleRoute> {
+        let task = self.current_task.as_ref()?;
+        Some(self.role_router.route(RoleRouteInput {
+            message: task.description.clone(),
+            domain_id: Some("domain.general".to_string()),
+            action: None,
+            max_roles: 3,
+        }))
+    }
+}
+
+fn primary_worker_id(role_route: &RoleRoute) -> WorkerId {
+    WorkerId(format!("worker.{}", role_route.primary_runtime_role))
 }
 
 fn next_message_id() -> MessageId {
