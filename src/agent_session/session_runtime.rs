@@ -10,16 +10,20 @@ use crate::{
     core::{
         messaging::MessageRx,
         protocol::{
-            AgentId, Message, MessageContext, MessageId, Payload, SessionId, TaskId, TaskSpec,
-            WorkerId, WorkerProfile,
+            AgentId, Message, MessageContext, MessageId, Payload, SessionEvent, SessionId, TaskId,
+            TaskSpec, WorkerId, WorkerProfile,
         },
     },
 };
+
+pub type SessionEventTx = tokio_mpsc::Sender<SessionEvent>;
+pub type SessionEventRx = tokio_mpsc::Receiver<SessionEvent>;
 
 #[derive(Debug, Clone)]
 pub struct SessionRuntimeConfig {
     pub response_timeout: Duration,
     pub worker_profiles: Vec<WorkerProfile>,
+    pub event_buffer: usize,
 }
 
 impl Default for SessionRuntimeConfig {
@@ -27,6 +31,7 @@ impl Default for SessionRuntimeConfig {
         Self {
             response_timeout: Duration::from_secs(300),
             worker_profiles: vec![default_worker_profile()],
+            event_buffer: 1024,
         }
     }
 }
@@ -38,6 +43,7 @@ pub struct SessionRuntimeInput {
     pub commander_cognition: Box<dyn Cognition + Send>,
     pub worker_cognition: Box<dyn Cognition + Send>,
     pub config: SessionRuntimeConfig,
+    pub event_tx: Option<SessionEventTx>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +63,7 @@ pub struct SessionRuntime {
     commander_loop: tokio::task::JoinHandle<()>,
     worker_loop: tokio::task::JoinHandle<()>,
     response_timeout: Duration,
+    event_tx: Option<SessionEventTx>,
 }
 
 impl SessionRuntime {
@@ -112,10 +119,16 @@ impl SessionRuntime {
             commander_loop,
             worker_loop,
             response_timeout: input.config.response_timeout,
+            event_tx: input.event_tx,
         })
     }
 
     pub async fn run_until_complete(&mut self) -> Result<SessionResult> {
+        self.emit_event(SessionEvent::Started {
+            session_id: self.session_id.clone(),
+        })
+        .await;
+
         let task_id = TaskId(next_id("task"));
         let mut context = self.context.clone();
         context.session_id = Some(self.session_id.clone());
@@ -138,19 +151,37 @@ impl SessionRuntime {
             .send(message)
             .map_err(|_| SettingsError::invalid("failed to send task to session commander"))?;
 
+        self.emit_event(SessionEvent::CommanderThinking {
+            session_id: self.session_id.clone(),
+        })
+        .await;
+
         let Some(mut response_rx) = self.response_rx.take() else {
             return Err(SettingsError::invalid("session response receiver already used").into());
         };
         let timeout = self.response_timeout;
-        let received = tokio::time::timeout(timeout, response_rx.recv())
-            .await
-            .map_err(|_| SettingsError::invalid("session response timed out"))?
-            .ok_or_else(|| SettingsError::invalid("session response channel closed"))?;
+        let received = match tokio::time::timeout(timeout, response_rx.recv()).await {
+            Ok(Some(message)) => message,
+            Ok(None) => {
+                let reason = "session response channel closed".to_string();
+                return Err(SettingsError::invalid(reason).into());
+            }
+            Err(_) => {
+                let reason = "session response timed out".to_string();
+                return Err(SettingsError::invalid(reason).into());
+            }
+        };
 
         let output = match received.payload {
             Payload::Text { content } => content,
             _ => "session returned non-text response".to_string(),
         };
+
+        self.emit_event(SessionEvent::Output {
+            session_id: self.session_id.clone(),
+            content: output.clone(),
+        })
+        .await;
 
         Ok(SessionResult {
             session_id: self.session_id.clone(),
@@ -186,6 +217,12 @@ impl SessionRuntime {
 
     pub fn session_context(&self) -> Arc<SessionContext> {
         self.session_context.clone()
+    }
+
+    async fn emit_event(&self, event: SessionEvent) {
+        if let Some(event_tx) = &self.event_tx {
+            let _ = event_tx.send(event).await;
+        }
     }
 }
 

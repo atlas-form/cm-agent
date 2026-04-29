@@ -3,13 +3,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use tokio::sync::mpsc;
+
 use crate::{
     agent_error::Result,
     agent_session::{
         AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, MemoryStore,
-        NoopMemoryStore, SessionResult, SessionRuntimeConfig,
+        NoopMemoryStore, SessionEventRx, SessionResult, SessionRuntimeConfig,
     },
-    core::protocol::{AgentId, SessionId, UserId, WorkspaceId},
+    core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
 };
 
 #[derive(Clone)]
@@ -42,14 +44,14 @@ pub struct AgentRequest {
 
 pub struct AgentManager {
     config: AgentManagerConfig,
-    active_sessions: Mutex<HashMap<SessionId, ()>>,
+    active_sessions: Arc<Mutex<HashMap<SessionId, ()>>>,
 }
 
 impl AgentManager {
     pub fn new(config: AgentManagerConfig) -> Self {
         Self {
             config,
-            active_sessions: Mutex::new(HashMap::new()),
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -59,6 +61,37 @@ impl AgentManager {
         let result = session.run_once(request.input).await;
         self.remove_session(&request.session_id);
         result
+    }
+
+    pub fn run_stream(&self, request: AgentRequest) -> Result<SessionEventRx> {
+        self.register_session(&request.session_id);
+        let session_id = request.session_id.clone();
+        let input = request.input.clone();
+        let session = self.create_session(&request);
+        let (event_tx, event_rx) = mpsc::channel(self.config.runtime.event_buffer);
+        let active_sessions = self.active_sessions.clone();
+
+        tokio::spawn(async move {
+            let result = session
+                .run_once_with_events(input, Some(event_tx.clone()))
+                .await;
+            remove_session_from(&active_sessions, &session_id);
+            match result {
+                Ok(_) => {
+                    let _ = event_tx.send(SessionEvent::Finished { session_id }).await;
+                }
+                Err(err) => {
+                    let _ = event_tx
+                        .send(SessionEvent::Failed {
+                            session_id,
+                            reason: err.to_string(),
+                        })
+                        .await;
+                }
+            }
+        });
+
+        Ok(event_rx)
     }
 
     pub fn active_session_count(&self) -> usize {
@@ -92,8 +125,15 @@ impl AgentManager {
     }
 
     fn remove_session(&self, session_id: &SessionId) {
-        if let Ok(mut sessions) = self.active_sessions.lock() {
-            sessions.remove(session_id);
-        }
+        remove_session_from(&self.active_sessions, session_id);
+    }
+}
+
+fn remove_session_from(
+    active_sessions: &Arc<Mutex<HashMap<SessionId, ()>>>,
+    session_id: &SessionId,
+) {
+    if let Ok(mut sessions) = active_sessions.lock() {
+        sessions.remove(session_id);
     }
 }

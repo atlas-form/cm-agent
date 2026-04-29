@@ -26,9 +26,9 @@ pub use action::{
 pub use agent_manager::{AgentManager, AgentManagerConfig, AgentRequest};
 pub use agent_session::{
     AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, EndpointDirectory,
-    MemoryScope, MemoryStore, NoopMemoryStore, SessionBlackboard, SessionContext,
-    SessionExtensions, SessionResult, SessionRuntime, SessionRuntimeConfig, SessionRuntimeInput,
-    SessionSnapshot, WorkerCatalog, context,
+    MemoryScope, MemoryStore, NoopMemoryStore, SessionBlackboard, SessionContext, SessionEventRx,
+    SessionEventTx, SessionExtensions, SessionResult, SessionRuntime, SessionRuntimeConfig,
+    SessionRuntimeInput, SessionSnapshot, WorkerCatalog, context,
 };
 pub use cognition::{
     Cognition, CognitionDecoder, CognitionEngine, CognitionFailure, CognitionInput,
