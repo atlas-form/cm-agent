@@ -8,6 +8,12 @@
 
 不要再参考旧的永久生命体设计。
 
+项目形态已经定为一个独立 library crate，不再使用 workspace 多 crate。
+
+Web server 后续只依赖根 crate。
+
+本地测试入口使用 `src/bin/`。
+
 ## Phase 1：协议上下文
 
 目标：让所有消息具备多用户/多会话隔离能力。
@@ -30,6 +36,8 @@
 
 目标：增加全局管理器。
 
+位置：`src/agent_manager`
+
 职责：
 
 - 创建 `AgentSession`
@@ -49,6 +57,8 @@
 
 目标：增加短生命 session 容器。
 
+位置：`src/agent_session`
+
 职责：
 
 - 持有 session context
@@ -65,6 +75,8 @@
 ## Phase 4：SessionRuntime
 
 目标：把真正的 agent runtime 放进 session。
+
+位置：`src/agent_session/session_runtime.rs`
 
 职责：
 
@@ -85,6 +97,8 @@
 ## Phase 5：删除 World，改为 SessionContext
 
 目标：不再保留 `world` 作为核心概念。
+
+位置：`src/agent_session/context`
 
 修改方向：
 

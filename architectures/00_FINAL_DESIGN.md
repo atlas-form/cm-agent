@@ -134,22 +134,30 @@ Worker 不跨 session 持有状态。
 
 ## Crate 方向
 
-目标 crate 边界：
+项目最终是一个独立 library crate，不再是 workspace 多 crate。
+
+Web server 以后只依赖这一个 crate：
+
+```toml
+cm-agent = "0.1"
+```
+
+crate 内部模块边界：
 
 ```text
-agent-manager
+src/agent_manager
   AgentManager
 
-agent-session
+src/agent_session
   AgentSession
   SessionRuntime
   SessionContext
 
-agent
+src/agent
   Commander
   Worker
 
-core
+src/core
   Message
   Payload
   Id
@@ -159,6 +167,14 @@ core
 `world` crate 已删除。
 
 `agent-runtime` crate 已拆分，不继续同时放 manager 和 runtime。
+
+`app` / `agent-ui` 已删除，不作为库的一部分。
+
+本地测试入口放在：
+
+```text
+src/bin/smoke.rs
+```
 
 ## 与 Python pipeline 的区别
 
@@ -192,7 +208,7 @@ Rust 要做的是：
 - 不让 Worker 跨 session 持有状态。
 - 不在第一阶段处理 skill。
 - 不在第一阶段处理复杂长期 memory。
-- LLM 暂时作为 app 启动阶段的 shared service 注册，后续再抽成更清晰的共享依赖。
+- LLM 后续作为 library 的共享依赖注入，不再依赖 app 启动层。
 
 ## 一句话
 

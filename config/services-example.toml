@@ -4,7 +4,7 @@ usage = "cognition"
 base_url = "http://10.100.11.245:11434"
 model = "gpt-oss:20b"
 api_key = ""
-max_tokens = 1024
+max_tokens = 20000
 temperature = 0.0
 
 [[llms]]
@@ -13,5 +13,5 @@ usage = "chat"
 base_url = "http://10.100.11.245:11434"
 model = "gpt-oss:20b"
 api_key = ""
-max_tokens = 512
+max_tokens = 8192
 temperature = 0.2

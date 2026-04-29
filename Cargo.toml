@@ -1,32 +1,32 @@
-[workspace]
-resolver = "3"
-members = ["crates/*"]
-exclude = ["crates/worker", "crates/commander"]
-
-[workspace.package]
+[package]
+name = "cm-agent"
 version = "0.1.0"
 edition = "2024"
-license = "LicenseRef-Proprietary"
+license-file = "LICENSE"
 authors = ["Ancient"]
+description = "Short-lived multi-user agent runtime library."
+include = [
+    "Cargo.toml",
+    "LICENSE",
+    "src/**",
+    "prompts/**",
+    "config/services-example.toml",
+    "architectures/**",
+]
 
-[workspace.dependencies]
-app = { path = "crates/app" }
-agent = { path = "crates/agent" }
-agent-ui = { path = "crates/agent-ui" }
-action = { path = "crates/action" }
-cognition = { path = "crates/cognition" }
-perception = { path = "crates/perception" }
-agent-error = { path = "crates/agent-error" }
-agent-utils = { path = "crates/agent-utils" }
-agent-llm = { path = "crates/agent-llm" }
-agent-manager = { path = "crates/agent-manager" }
-agent-session = { path = "crates/agent-session" }
+[lib]
+name = "cm_agent"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1"
+futures = "0.3"
+model-gateway-rs = "0.2.4"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1.50", features = ["rt-multi-thread"] }
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "sync", "time"] }
+toolcraft-config = { version = "0.2.0" }
+toolcraft-request = { version = "0.2.3" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
-toolcraft-request = { version = "0.2.3"}
-toolcraft-config = { version = "0.2.0" }
