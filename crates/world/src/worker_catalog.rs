@@ -30,7 +30,8 @@ impl WorkerProfile {
         };
 
         format!(
-            "worker_id={} | agent_id={} | name={} | status={} | capabilities={} | constraints={} | description={}",
+            "worker_id={} | agent_id={} | name={} | status={} | capabilities={} | constraints={} \
+             | description={}",
             self.worker_id.0,
             self.agent_id,
             self.name,

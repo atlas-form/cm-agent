@@ -27,13 +27,13 @@ mod tests {
     use cognition::{CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind};
 
     use super::build_commander_cognition;
-    use crate::startup::{settings::Settings, world::init_world_channels};
+    use crate::startup::{settings::Settings, world::init_shared_services};
 
     #[tokio::test]
     #[ignore = "requires running chat completions-compatible service and model"]
     async fn chat_completions_cognition_smoke() {
         let settings = Settings::load_default().expect("load settings failed");
-        let _ = init_world_channels(&settings).expect("world init failed");
+        init_shared_services(&settings).expect("world init failed");
         let cognition = build_commander_cognition().expect("build cognition failed");
 
         let input = CognitionInput {

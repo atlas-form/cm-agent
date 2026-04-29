@@ -50,8 +50,11 @@ dependencies = [
  "agent",
  "agent-error",
  "cognition",
+ "core",
  "perception",
+ "tokio",
  "tracing",
+ "world",
 ]
 
 [[package]]
@@ -89,6 +92,7 @@ dependencies = [
  "agent",
  "agent-error",
  "agent-llm",
+ "agent-runtime",
  "agent-ui",
  "agent-utils",
  "async-trait",

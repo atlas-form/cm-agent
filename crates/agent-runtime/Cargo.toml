@@ -11,4 +11,7 @@ action = { workspace = true }
 perception = { workspace = true }
 cognition = { workspace = true }
 agent-error = { workspace = true }
+agent-core = { package = "core", path = "../core" }
+world = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }

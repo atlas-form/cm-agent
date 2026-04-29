@@ -169,7 +169,10 @@ mod tests {
         );
 
         assert_eq!(decision.target_worker_id.unwrap().0, "worker-2");
-        assert!(matches!(decision.intent, agent_core::protocol::DecisionIntent::ExecuteTask { .. }));
+        assert!(matches!(
+            decision.intent,
+            agent_core::protocol::DecisionIntent::ExecuteTask { .. }
+        ));
     }
 
     #[test]
@@ -201,6 +204,9 @@ mod tests {
 
         let decision = decision_intent_from_json(&output, None);
 
-        assert_eq!(decision.clarification.as_deref(), Some("需要先确认目标环境"));
+        assert_eq!(
+            decision.clarification.as_deref(),
+            Some("需要先确认目标环境")
+        );
     }
 }

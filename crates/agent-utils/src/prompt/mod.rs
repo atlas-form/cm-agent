@@ -129,14 +129,12 @@ fn extract_balanced_json(input: &str, start_char: char) -> Option<&str> {
                 }
                 depth += 1;
             }
-            ch if ch == end_char => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        if let Some(start_index) = start {
-                            return Some(&input[start_index ..= index]);
-                        }
-                    }
+            ch if ch == end_char && depth > 0 => {
+                depth -= 1;
+                if depth == 0
+                    && let Some(start_index) = start
+                {
+                    return Some(&input[start_index ..= index]);
                 }
             }
             _ => {}

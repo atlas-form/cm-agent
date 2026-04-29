@@ -109,9 +109,31 @@ fn strip_code_fences(input: &str) -> &str {
 }
 
 fn extract_json_value(input: &str) -> Option<String> {
-    for start_char in ['{', '['] {
-        if let Some(candidate) = extract_balanced_json(input, start_char) {
-            return Some(candidate.to_string());
+    let mut in_string = false;
+    let mut escape = false;
+
+    for (index, ch) in input.char_indices() {
+        if in_string {
+            if escape {
+                escape = false;
+                continue;
+            }
+            match ch {
+                '\\' => escape = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' | '[' => {
+                if let Some(candidate) = extract_balanced_json(&input[index ..], ch) {
+                    return Some(candidate.to_string());
+                }
+            }
+            _ => {}
         }
     }
     None
@@ -150,14 +172,12 @@ fn extract_balanced_json(input: &str, start_char: char) -> Option<&str> {
                 }
                 depth += 1;
             }
-            ch if ch == end_char => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        if let Some(start_index) = start {
-                            return Some(&input[start_index ..= index]);
-                        }
-                    }
+            ch if ch == end_char && depth > 0 => {
+                depth -= 1;
+                if depth == 0
+                    && let Some(start_index) = start
+                {
+                    return Some(&input[start_index ..= index]);
                 }
             }
             _ => {}

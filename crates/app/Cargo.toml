@@ -10,6 +10,7 @@ agent = { workspace = true }
 agent-core = { package = "core", path = "../core" }
 agent-error = { workspace = true }
 agent-llm = { workspace = true }
+agent-runtime = { workspace = true }
 agent-ui = { workspace = true }
 agent-utils = { workspace = true }
 cognition = { workspace = true }

@@ -1,65 +1,14 @@
 use std::sync::Arc;
 
-use agent_core::{
-    messaging::{MessageRx, MessageTx},
-    protocol::{Message, WorkerId},
-};
 use agent_error::{LlmError, Result, SettingsError};
 use agent_llm::llm::chat_completions::ChatCompletionsLlm;
-use tokio::sync::mpsc;
-use world::{
-    LlmKey, WorkerProfile, init_world, register_commander_tx, register_llm,
-    register_worker_profile, register_worker_tx,
-};
+use world::{LlmKey, init_world, register_llm};
 
 use crate::startup::settings::{LlmConfig, Settings};
 
-#[derive(Clone)]
-pub struct WorldChannels {
-    pub commander_in_tx: MessageTx,
-    pub worker_in_tx: MessageTx,
-}
-
-pub struct WorldReceivers {
-    pub commander_in_rx: MessageRx,
-    pub worker_in_rx: MessageRx,
-}
-
-pub fn init_world_channels(settings: &Settings) -> Result<(WorldChannels, WorldReceivers)> {
-    let (commander_in_tx, commander_in_rx) = mpsc::unbounded_channel::<Message>();
-    let (worker_in_tx, worker_in_rx) = mpsc::unbounded_channel::<Message>();
-
+pub fn init_shared_services(settings: &Settings) -> Result<()> {
     init_world();
-    register_configured_llms(settings)?;
-    register_commander_tx(commander_in_tx.clone());
-    register_worker_tx(WorkerId("worker-1".to_string()), worker_in_tx.clone());
-    register_worker_profile(WorkerProfile {
-        worker_id: WorkerId("worker-1".to_string()),
-        agent_id: "worker-1".to_string(),
-        name: "General Worker".to_string(),
-        description: "通用执行 worker，适合处理常规单步任务和基础动作执行。".to_string(),
-        capabilities: vec![
-            "general_execution".to_string(),
-            "single_step_actions".to_string(),
-            "basic_task_handling".to_string(),
-        ],
-        constraints: vec![
-            "one_task_at_a_time".to_string(),
-            "limited_to_registered_actions".to_string(),
-        ],
-        status: "ready".to_string(),
-    });
-
-    Ok((
-        WorldChannels {
-            commander_in_tx,
-            worker_in_tx,
-        },
-        WorldReceivers {
-            commander_in_rx,
-            worker_in_rx,
-        },
-    ))
+    register_configured_llms(settings)
 }
 
 fn register_configured_llms(settings: &Settings) -> Result<()> {

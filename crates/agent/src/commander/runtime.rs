@@ -1,17 +1,20 @@
-use std::{collections::HashMap, thread, time::Duration};
+use std::{collections::HashMap, sync::Arc, thread, time::Duration};
 
 use agent_core::{
     messaging::{MessageReceive, MessageSend},
-    protocol::{AgentId, DecisionIntent, Message, MessageId, Payload, TaskSpec, WorkerId},
+    protocol::{
+        AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, TaskSpec, WorkerId,
+    },
 };
-use cognition::{
-    Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind,
-};
+use cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind};
 use futures::executor::block_on;
 use tracing::{info, warn};
-use world::{get_worker_tx, list_worker_profiles};
+use world::WorldRuntime;
 
-use super::{CommanderPhase, CommanderState, CommanderTask, RoutedDecision, TaskMemory, decision_intent_from_json};
+use super::{
+    CommanderPhase, CommanderState, CommanderTask, RoutedDecision, TaskMemory,
+    decision_intent_from_json,
+};
 
 pub struct Commander {
     id: AgentId,
@@ -19,10 +22,12 @@ pub struct Commander {
     state: CommanderState,
     phase: CommanderPhase,
     current_task: Option<CommanderTask>,
+    current_context: MessageContext,
     cognition: Box<dyn Cognition + Send>,
     receiver: Box<dyn MessageReceive + Send>,
     sender: Box<dyn MessageSend + Send>,
     memory: TaskMemory,
+    world: Arc<WorldRuntime>,
 }
 
 impl Commander {
@@ -33,16 +38,29 @@ impl Commander {
         receiver: Box<dyn MessageReceive + Send>,
         sender: Box<dyn MessageSend + Send>,
     ) -> Self {
+        Self::new_with_world(id, world_id, cognition, receiver, sender, world::world())
+    }
+
+    pub fn new_with_world(
+        id: AgentId,
+        world_id: AgentId,
+        cognition: Box<dyn Cognition + Send>,
+        receiver: Box<dyn MessageReceive + Send>,
+        sender: Box<dyn MessageSend + Send>,
+        world: Arc<WorldRuntime>,
+    ) -> Self {
         Self {
             id,
             world_id,
             state: CommanderState::Idle,
             phase: CommanderPhase::Idle,
             current_task: None,
+            current_context: MessageContext::default(),
             cognition,
             receiver,
             sender,
             memory: TaskMemory::default(),
+            world,
         }
     }
 
@@ -79,13 +97,15 @@ impl Commander {
     }
 
     fn handle_message(&mut self, message: Message) {
+        let context = message.context.clone();
         match message.payload {
-            Payload::HumanCommand { task } => self.on_human_command(task),
+            Payload::HumanCommand { task } => self.on_human_command(task, context),
             Payload::WorkerReportStarted { worker_id, task_id } => {
                 self.memory
                     .push_progress(format!("worker {} started {}", worker_id.0, task_id.0));
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    context,
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -96,8 +116,9 @@ impl Commander {
             Payload::WorkerReportFinished { worker_id, task_id } => {
                 self.memory
                     .push_progress(format!("worker {} finished {}", worker_id.0, task_id.0));
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    context,
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -116,8 +137,9 @@ impl Commander {
                     "worker {} failed {}: {}",
                     worker_id.0, task_id.0, reason
                 ));
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    context,
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -136,7 +158,7 @@ impl Commander {
         }
     }
 
-    fn on_human_command(&mut self, task: TaskSpec) {
+    fn on_human_command(&mut self, task: TaskSpec, context: MessageContext) {
         let incoming_task = CommanderTask {
             id: task.id.0,
             description: task.description,
@@ -147,6 +169,7 @@ impl Commander {
         self.memory
             .set_state("incoming_task_id", incoming_task.id.clone());
         self.current_task = Some(incoming_task);
+        self.current_context = context;
         self.phase = CommanderPhase::Thinking;
         self.state = CommanderState::Running;
     }
@@ -174,8 +197,9 @@ impl Commander {
         match routed.intent {
             DecisionIntent::ExecuteTask { task } => {
                 if !self.dispatch_task_to_worker(task, routed.target_worker_id) {
-                    self.sender.send(Message::new(
+                    self.sender.send(Message::new_with_context(
                         next_message_id(),
+                        self.current_context.clone(),
                         self.id.clone(),
                         self.world_id.clone(),
                         Payload::Text {
@@ -189,16 +213,18 @@ impl Commander {
                     .clarification
                     .map(|question| format!("需要补充信息后再路由：{question}"))
                     .unwrap_or_else(|| "已评估当前输入：本轮无需执行新任务。".to_string());
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    self.current_context.clone(),
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text { content },
                 ));
             }
             DecisionIntent::IgnoreNewTask => {
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    self.current_context.clone(),
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -207,8 +233,9 @@ impl Commander {
                 ));
             }
             DecisionIntent::KeepCurrentTask => {
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    self.current_context.clone(),
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -217,8 +244,9 @@ impl Commander {
                 ));
             }
             DecisionIntent::ReplaceCurrentTask { task } => {
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    self.current_context.clone(),
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -227,8 +255,9 @@ impl Commander {
                 ));
             }
             DecisionIntent::StrategyHint { hint } => {
-                self.sender.send(Message::new(
+                self.sender.send(Message::new_with_context(
                     next_message_id(),
+                    self.current_context.clone(),
                     self.id.clone(),
                     self.world_id.clone(),
                     Payload::Text {
@@ -244,13 +273,14 @@ impl Commander {
 
     fn dispatch_task_to_worker(&self, task: TaskSpec, target_worker: Option<WorkerId>) -> bool {
         let target_worker = target_worker.unwrap_or_else(|| WorkerId("worker-1".to_string()));
-        let Some(worker_tx) = get_worker_tx(&target_worker) else {
+        let Some(worker_tx) = self.world.directory().get_worker_tx(&target_worker) else {
             warn!(worker_id = %target_worker.0, "no worker tx available for dispatch");
             return false;
         };
 
-        let task_message = Message::new(
+        let task_message = Message::new_with_context(
             next_message_id(),
+            self.current_context.clone(),
             self.id.clone(),
             AgentId(target_worker.0.clone()),
             Payload::Text {
@@ -278,8 +308,11 @@ impl Commander {
         let mut metadata = HashMap::new();
         metadata.insert("state".to_string(), format!("{:?}", self.state));
         metadata.insert("phase".to_string(), format!("{:?}", self.phase));
-        let worker_profiles = list_worker_profiles();
-        metadata.insert("available_workers.count".to_string(), worker_profiles.len().to_string());
+        let worker_profiles = self.world.worker_catalog().list();
+        metadata.insert(
+            "available_workers.count".to_string(),
+            worker_profiles.len().to_string(),
+        );
         for (index, profile) in worker_profiles.iter().enumerate() {
             metadata.insert(
                 format!("available_workers.{index}.worker_id"),

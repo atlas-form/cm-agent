@@ -1,11 +1,9 @@
-pub mod arbitration;
-pub mod buffering;
-pub mod epoch;
-pub mod ingress;
+pub mod manager;
+pub mod memory;
+pub mod session;
+pub mod session_runtime;
 
-pub struct Runtime {
-    pub epoch_manager: epoch::EpochManager,
-    pub ingress: ingress::EventIngress,
-    pub buffering: buffering::EventBuffering,
-    pub arbitration: arbitration::ArbitrationUnit,
-}
+pub use manager::*;
+pub use memory::*;
+pub use session::*;
+pub use session_runtime::*;

@@ -8,7 +8,7 @@ use startup::AppStartup;
 async fn main() -> Result<()> {
     init_tracing_with_level(LogLevel::Info);
     let mut startup = AppStartup::boot()?;
-    startup.run_ui()?;
+    startup.run_ui().await?;
     startup.shutdown().await;
     Ok(())
 }

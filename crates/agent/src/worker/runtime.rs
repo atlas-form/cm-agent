@@ -110,6 +110,7 @@ impl Worker {
                 if let Some(description) = payload.strip_prefix("task:start:") {
                     self.start_task(Task {
                         id: new_task_id(),
+                        context: message.context,
                         description: description.trim().to_string(),
                         requester: message.from,
                     });
@@ -203,6 +204,7 @@ impl Worker {
 
         self.sender.send(Message {
             id: next_message_id(),
+            context: task.context,
             from: self.id.clone(),
             to: task.requester,
             payload: Payload::WorkerReportFinished {
@@ -227,6 +229,7 @@ impl Worker {
             .unwrap_or_else(|| "unknown error".to_string());
         self.sender.send(Message {
             id: next_message_id(),
+            context: task.context,
             from: self.id.clone(),
             to: task.requester,
             payload: Payload::WorkerReportFailed {
