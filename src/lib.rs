@@ -46,7 +46,8 @@ pub(crate) use perception::{
     StimulusSpan, TextUtterancePerception,
 };
 pub(crate) use roles::{
-    RoleAction, RoleAssignment, RoleCatalog, RoleCollaborationPlan, RoleId, RoleProfile,
-    RolePromptBuilder, RolePromptInput, RoleRoute, RoleRouteInput, RoleRouter, RoleScore,
+    RoleAction, RoleAssignment, RoleCatalog, RoleCollaborationPlan, RoleContribution, RoleId,
+    RoleProfile, RolePromptBuilder, RolePromptInput, RoleRoute, RoleRouteInput, RoleRouter,
+    RoleScore,
 };
 pub extern crate tracing;

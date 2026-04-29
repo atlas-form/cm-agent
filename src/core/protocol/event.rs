@@ -25,6 +25,25 @@ pub enum SessionEvent {
         worker_id: WorkerId,
         task_id: TaskId,
     },
+    CollaborationStarted {
+        session_id: SessionId,
+        primary_worker_id: WorkerId,
+        support_worker_ids: Vec<WorkerId>,
+    },
+    CollaborationWorkerStarted {
+        session_id: SessionId,
+        worker_id: WorkerId,
+        task_id: TaskId,
+    },
+    CollaborationWorkerFinished {
+        session_id: SessionId,
+        worker_id: WorkerId,
+        task_id: TaskId,
+        content: Option<String>,
+    },
+    CollaborationFinished {
+        session_id: SessionId,
+    },
     Output {
         session_id: SessionId,
         content: String,
@@ -46,6 +65,10 @@ impl SessionEvent {
             Self::WorkerStarted { .. } => "worker_started",
             Self::LlmChunk { .. } => "llm_chunk",
             Self::WorkerFinished { .. } => "worker_finished",
+            Self::CollaborationStarted { .. } => "collaboration_started",
+            Self::CollaborationWorkerStarted { .. } => "collaboration_worker_started",
+            Self::CollaborationWorkerFinished { .. } => "collaboration_worker_finished",
+            Self::CollaborationFinished { .. } => "collaboration_finished",
             Self::Output { .. } => "output",
             Self::Failed { .. } => "failed",
             Self::Finished { .. } => "finished",

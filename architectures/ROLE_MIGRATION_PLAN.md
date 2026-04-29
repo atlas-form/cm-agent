@@ -17,7 +17,8 @@
 - `Worker` 已持有 `RoleProfile`，并在 cognition context 中注入 role 信息和 role prompt。
 - `RoleCognitionFactory` 已支持按 role 创建 worker cognition。
 - primary role 完成后，Commander 可以调度 support roles。
-- Worker cognition 输出会作为角色贡献回流给 Commander。
+- Worker cognition 输出会作为 `RoleContribution` 回流给 Commander。
+- role 协作过程会输出 `SessionEvent`，web server 可以映射成 SSE。
 
 未做：
 
@@ -25,6 +26,7 @@
 - 复杂长期 memory。
 - 质量重试、trust scorer、proactive engine。
 - token 级 role 输出流。
+- 复杂最终 synthesis。
 
 ## 旧代码判断
 
@@ -244,14 +246,13 @@ Commander
 对应事件：
 
 ```text
-collab_start
-collab_agent_start
-collab_token / llm_chunk
-collab_agent_done
-collab_done
+collaboration_started
+collaboration_worker_started
+collaboration_worker_finished
+collaboration_finished
 ```
 
-这些事件以后可以扩展到 `SessionEvent`。
+这些事件已经扩展到 `SessionEvent`。
 
 ## 暂时不做
 

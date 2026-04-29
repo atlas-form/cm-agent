@@ -113,6 +113,16 @@ impl Worker {
     }
 
     fn start_task(&mut self, task: Task) {
+        let _ = self.sender.send(Message {
+            id: next_message_id(),
+            context: task.context.clone(),
+            from: self.id.clone(),
+            to: task.requester.clone(),
+            payload: Payload::WorkerReportStarted {
+                worker_id: WorkerId(self.id.0.clone()),
+                task_id: TaskId(task.id.clone()),
+            },
+        });
         self.current_task = Some(task);
         self.current_action = None;
         self.phase = WorkerPhase::Thinking;

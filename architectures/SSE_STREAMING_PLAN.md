@@ -63,6 +63,25 @@ pub enum SessionEvent {
         worker_id: WorkerId,
         task_id: TaskId,
     },
+    CollaborationStarted {
+        session_id: SessionId,
+        primary_worker_id: WorkerId,
+        support_worker_ids: Vec<WorkerId>,
+    },
+    CollaborationWorkerStarted {
+        session_id: SessionId,
+        worker_id: WorkerId,
+        task_id: TaskId,
+    },
+    CollaborationWorkerFinished {
+        session_id: SessionId,
+        worker_id: WorkerId,
+        task_id: TaskId,
+        content: Option<String>,
+    },
+    CollaborationFinished {
+        session_id: SessionId,
+    },
     Output {
         session_id: SessionId,
         content: String,
@@ -147,6 +166,12 @@ AgentManager::cancel_session(session_id)
 8. 压测 streaming event channel，确认不会造成无限内存增长。
 
 ## 不做事项
+
+第一版已完成：
+
+- 基础 session event stream
+- `WorkerStarted / WorkerFinished`
+- role collaboration events
 
 第一版不做：
 

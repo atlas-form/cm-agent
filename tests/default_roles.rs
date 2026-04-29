@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, RoleProfile, SessionId, UserId,
+    CognitionResult, RoleProfile, SessionEvent, SessionId, UserId,
 };
 use serde_json::json;
 
@@ -334,4 +334,60 @@ async fn commander_dispatches_support_roles_after_primary_role() {
     assert!(result.output.contains("支持角色已完成"));
     assert!(result.output.contains("primary data"));
     assert!(result.output.contains("support creative"));
+}
+
+#[tokio::test]
+async fn stream_emits_role_collaboration_events() {
+    let manager = AgentManager::new(AgentManagerConfig::new(
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
+        Arc::new(|| Ok(Box::new(NoopWorkerCognition))),
+    ));
+
+    let mut rx = manager
+        .run_stream(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-collab-stream".to_string()),
+            input: "帮我分析数据指标归因漏斗，并写一版直播脚本文案".to_string(),
+        })
+        .expect("stream should start");
+
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        let terminal = matches!(
+            event,
+            SessionEvent::Finished { .. } | SessionEvent::Failed { .. }
+        );
+        events.push(event);
+        if terminal {
+            break;
+        }
+    }
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::WorkerStarted { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::WorkerFinished { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::CollaborationStarted { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::CollaborationWorkerFinished { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::CollaborationFinished { .. }))
+    );
 }

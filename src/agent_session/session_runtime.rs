@@ -5,7 +5,10 @@ use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::{
     SessionContext,
-    agent::{commander::Commander, worker::Worker},
+    agent::{
+        commander::{Commander, CommanderChannels},
+        worker::Worker,
+    },
     agent_error::{Result, SettingsError},
     cognition::Cognition,
     core::{
@@ -123,8 +126,11 @@ impl SessionRuntime {
             AgentId("commander".to_string()),
             AgentId("external-host".to_string()),
             input.commander_cognition,
-            commander_rx,
-            response_tx,
+            CommanderChannels {
+                receiver: commander_rx,
+                sender: response_tx,
+                event_tx: input.event_tx.clone(),
+            },
             session_context.clone(),
             RoleRouter::new(role_catalog),
         );

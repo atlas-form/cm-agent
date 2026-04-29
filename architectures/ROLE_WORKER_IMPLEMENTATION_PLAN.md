@@ -48,8 +48,9 @@ worker.service
 - `Worker` cognition context 会带上 `role.id` / `role.name` / `role.runtime_role`。
 - `Worker` cognition context 会带上 `RolePromptBuilder` 生成的 role prompt。
 - `AgentManagerConfig::new_role_aware(...)` 可以按 role 创建不同 worker cognition。
-- Worker 完成后会把 cognition output 作为角色贡献回传给 Commander。
+- Worker 完成后会把 cognition output 包装为 `RoleContribution` 回传给 Commander。
 - Commander 可以先派 primary role，再派 support roles，并汇总贡献。
+- role 协作过程已经接入 `SessionEvent`。
 
 ## 目标结构
 
@@ -402,8 +403,6 @@ src/agent/roles/data.rs
 下一步如果继续 role 方向，应该做：
 
 ```text
-role contribution schema
-collaboration SSE events
 final synthesis prompt
 role-specific LLM smoke example
 ```

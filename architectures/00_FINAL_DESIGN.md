@@ -173,6 +173,7 @@ src/roles
   RoleRouter
   RolePrompt
   RoleCollaborationPlan
+  RoleContribution
 
 src/core
   Message
@@ -238,7 +239,9 @@ Worker + RoleProfile + RolePrompt + Cognition
 
 普通提问、解释、闲聊、概念说明，默认进入 `chat` role。
 
-primary role 先执行，support roles 后续并发补充，最后由 Commander 汇总角色贡献。
+primary role 先执行，support roles 后续并发补充，最后由 Commander 汇总 `RoleContribution`。
+
+role 协作过程通过 `SessionEvent` 暴露，web server 可转换为 SSE。
 
 ## 与 Python pipeline 的区别
 

@@ -11,17 +11,26 @@ use crate::{
     core::{
         messaging::{MessageRx, MessageTx},
         protocol::{
-            AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, TaskId, TaskSpec,
-            WorkerId, WorkerProfile,
+            AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, SessionEvent,
+            TaskId, TaskSpec, WorkerId, WorkerProfile,
         },
     },
-    roles::{RoleCollaborationPlan, RoleRoute, RoleRouteInput, RoleRouter},
+    roles::{
+        RoleAssignment, RoleCollaborationPlan, RoleContribution, RoleRoute, RoleRouteInput,
+        RoleRouter,
+    },
 };
 
 pub trait CommanderSessionContext: Send + Sync {
     fn get_worker_tx(&self, worker_id: &WorkerId) -> Option<MessageTx>;
 
     fn list_worker_profiles(&self) -> Vec<WorkerProfile>;
+}
+
+pub struct CommanderChannels {
+    pub receiver: MessageRx,
+    pub sender: MessageTx,
+    pub event_tx: Option<tokio::sync::mpsc::Sender<SessionEvent>>,
 }
 
 pub struct Commander {
@@ -34,6 +43,7 @@ pub struct Commander {
     cognition: Box<dyn Cognition + Send>,
     receiver: MessageRx,
     sender: MessageTx,
+    event_tx: Option<tokio::sync::mpsc::Sender<SessionEvent>>,
     memory: TaskMemory,
     session_context: Arc<dyn CommanderSessionContext>,
     role_router: RoleRouter,
@@ -41,7 +51,7 @@ pub struct Commander {
     active_collaboration_task_id: Option<TaskId>,
     pending_support_workers: Vec<WorkerId>,
     completed_support_workers: Vec<WorkerId>,
-    collaboration_outputs: HashMap<WorkerId, String>,
+    collaboration_outputs: HashMap<WorkerId, RoleContribution>,
 }
 
 impl Commander {
@@ -49,8 +59,7 @@ impl Commander {
         id: AgentId,
         world_id: AgentId,
         cognition: Box<dyn Cognition + Send>,
-        receiver: MessageRx,
-        sender: MessageTx,
+        channels: CommanderChannels,
         session_context: Arc<dyn CommanderSessionContext>,
         role_router: RoleRouter,
     ) -> Self {
@@ -62,8 +71,9 @@ impl Commander {
             current_task: None,
             current_context: MessageContext::default(),
             cognition,
-            receiver,
-            sender,
+            receiver: channels.receiver,
+            sender: channels.sender,
+            event_tx: channels.event_tx,
             memory: TaskMemory::default(),
             session_context,
             role_router,
@@ -104,15 +114,18 @@ impl Commander {
             Payload::WorkerReportStarted { worker_id, task_id } => {
                 self.memory
                     .push_progress(format!("worker {} started {}", worker_id.0, task_id.0));
-                let _ = self.sender.send(Message::new_with_context(
-                    next_message_id(),
-                    context,
-                    self.id.clone(),
-                    self.world_id.clone(),
-                    Payload::Text {
-                        content: format!("任务开始执行: {}", task_id.0),
-                    },
-                ));
+                self.emit_event(SessionEvent::WorkerStarted {
+                    session_id: self.session_id_from_context(&context),
+                    worker_id: worker_id.clone(),
+                    task_id: task_id.clone(),
+                });
+                if self.is_collaboration_worker(&worker_id) {
+                    self.emit_event(SessionEvent::CollaborationWorkerStarted {
+                        session_id: self.session_id_from_context(&context),
+                        worker_id,
+                        task_id,
+                    });
+                }
             }
             Payload::WorkerReportFinished {
                 worker_id,
@@ -121,12 +134,20 @@ impl Commander {
             } => {
                 self.memory
                     .push_progress(format!("worker {} finished {}", worker_id.0, task_id.0));
-                if self.handle_collaboration_worker_finished(
-                    &worker_id,
-                    &task_id,
-                    output.as_deref(),
-                    &context,
-                ) {
+                self.emit_event(SessionEvent::WorkerFinished {
+                    session_id: self.session_id_from_context(&context),
+                    worker_id: worker_id.clone(),
+                    task_id: task_id.clone(),
+                });
+                if self
+                    .handle_collaboration_worker_finished(
+                        &worker_id,
+                        &task_id,
+                        output.as_deref(),
+                        &context,
+                    )
+                    .await
+                {
                     return;
                 }
                 let _ = self.sender.send(Message::new_with_context(
@@ -150,6 +171,11 @@ impl Commander {
                     "worker {} failed {}: {}",
                     worker_id.0, task_id.0, reason
                 ));
+                self.emit_event(SessionEvent::WorkerFinished {
+                    session_id: self.session_id_from_context(&context),
+                    worker_id,
+                    task_id: task_id.clone(),
+                });
                 let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     context,
@@ -345,7 +371,7 @@ impl Commander {
         self.collaboration_outputs.clear();
     }
 
-    fn handle_collaboration_worker_finished(
+    async fn handle_collaboration_worker_finished(
         &mut self,
         worker_id: &WorkerId,
         task_id: &TaskId,
@@ -359,10 +385,27 @@ impl Commander {
         if worker_id == &plan.primary.worker_id && !plan.support.is_empty() {
             self.active_collaboration_task_id = Some(task_id.clone());
             if let Some(output) = output {
-                self.collaboration_outputs
-                    .insert(worker_id.clone(), output.to_string());
+                self.collaboration_outputs.insert(
+                    worker_id.clone(),
+                    build_contribution(&plan.primary, task_id, output),
+                );
             }
-            self.dispatch_support_workers(&plan, task_id);
+            self.emit_event(SessionEvent::CollaborationStarted {
+                session_id: self.session_id_from_context(context),
+                primary_worker_id: plan.primary.worker_id.clone(),
+                support_worker_ids: plan
+                    .support
+                    .iter()
+                    .map(|assignment| assignment.worker_id.clone())
+                    .collect(),
+            });
+            self.emit_event(SessionEvent::CollaborationWorkerFinished {
+                session_id: self.session_id_from_context(context),
+                worker_id: worker_id.clone(),
+                task_id: task_id.clone(),
+                content: output.map(ToString::to_string),
+            });
+            self.dispatch_support_workers(&plan, task_id).await;
             return true;
         }
 
@@ -374,16 +417,27 @@ impl Commander {
             self.pending_support_workers
                 .retain(|item| item != worker_id);
             self.completed_support_workers.push(worker_id.clone());
-            if let Some(output) = output {
-                self.collaboration_outputs
-                    .insert(worker_id.clone(), output.to_string());
+            if let Some(output) = output
+                && let Some(assignment) = plan.assignment_for(worker_id)
+            {
+                self.collaboration_outputs.insert(
+                    worker_id.clone(),
+                    build_contribution(assignment, task_id, output),
+                );
             }
+            self.emit_event(SessionEvent::CollaborationWorkerFinished {
+                session_id: self.session_id_from_context(context),
+                worker_id: worker_id.clone(),
+                task_id: task_id.clone(),
+                content: output.map(ToString::to_string),
+            });
             if self.pending_support_workers.is_empty() {
                 let primary_task_id = self
                     .active_collaboration_task_id
                     .clone()
                     .unwrap_or_else(|| task_id.clone());
-                self.send_collaboration_done(context, &primary_task_id);
+                self.send_collaboration_done(context, &primary_task_id)
+                    .await;
             }
             return true;
         }
@@ -391,7 +445,11 @@ impl Commander {
         false
     }
 
-    fn dispatch_support_workers(&mut self, plan: &RoleCollaborationPlan, primary_task_id: &TaskId) {
+    async fn dispatch_support_workers(
+        &mut self,
+        plan: &RoleCollaborationPlan,
+        primary_task_id: &TaskId,
+    ) {
         self.pending_support_workers = plan
             .support
             .iter()
@@ -419,11 +477,12 @@ impl Commander {
             .retain(|worker_id| dispatched.iter().any(|item| item == worker_id));
         if self.pending_support_workers.is_empty() {
             let context = self.current_context.clone();
-            self.send_collaboration_done(&context, primary_task_id);
+            self.send_collaboration_done(&context, primary_task_id)
+                .await;
         }
     }
 
-    fn send_collaboration_done(&mut self, context: &MessageContext, task_id: &TaskId) {
+    async fn send_collaboration_done(&mut self, context: &MessageContext, task_id: &TaskId) {
         let support_workers = self
             .completed_support_workers
             .iter()
@@ -434,15 +493,10 @@ impl Commander {
             self.active_collaboration
                 .as_ref()
                 .and_then(|plan| self.collaboration_outputs.get(&plan.primary.worker_id))
-                .cloned()
+                .map(|contribution| contribution.content.clone())
                 .unwrap_or_else(|| format!("任务已完成: {}", task_id.0))
         } else {
-            format!(
-                "任务已完成: {}；支持角色已完成: {}\n\n{}",
-                task_id.0,
-                support_workers,
-                self.format_collaboration_outputs()
-            )
+            self.synthesize_collaboration_output(task_id, &support_workers)
         };
         let _ = self.sender.send(Message::new_with_context(
             next_message_id(),
@@ -451,6 +505,9 @@ impl Commander {
             self.world_id.clone(),
             Payload::Text { content },
         ));
+        self.emit_event(SessionEvent::CollaborationFinished {
+            session_id: self.session_id_from_context(context),
+        });
         self.active_collaboration = None;
         self.active_collaboration_task_id = None;
         self.pending_support_workers.clear();
@@ -466,12 +523,18 @@ impl Commander {
         };
 
         let mut lines = Vec::new();
-        if let Some(output) = self.collaboration_outputs.get(&plan.primary.worker_id) {
-            lines.push(format!("primary {}: {}", plan.primary.runtime_role, output));
+        if let Some(contribution) = self.collaboration_outputs.get(&plan.primary.worker_id) {
+            lines.push(format!(
+                "primary {}: {}",
+                plan.primary.runtime_role, contribution.content
+            ));
         }
         for assignment in &plan.support {
-            if let Some(output) = self.collaboration_outputs.get(&assignment.worker_id) {
-                lines.push(format!("support {}: {}", assignment.runtime_role, output));
+            if let Some(contribution) = self.collaboration_outputs.get(&assignment.worker_id) {
+                lines.push(format!(
+                    "support {}: {}",
+                    assignment.runtime_role, contribution.content
+                ));
             }
         }
 
@@ -479,6 +542,38 @@ impl Commander {
             "角色贡献：none".to_string()
         } else {
             format!("角色贡献：\n{}", lines.join("\n"))
+        }
+    }
+
+    fn synthesize_collaboration_output(&self, task_id: &TaskId, support_workers: &str) -> String {
+        format!(
+            "任务已完成: {}；支持角色已完成: {}\n\n{}",
+            task_id.0,
+            support_workers,
+            self.format_collaboration_outputs()
+        )
+    }
+
+    fn is_collaboration_worker(&self, worker_id: &WorkerId) -> bool {
+        self.active_collaboration
+            .as_ref()
+            .map(|plan| plan.assignment_for(worker_id).is_some())
+            .unwrap_or(false)
+    }
+
+    fn session_id_from_context(
+        &self,
+        context: &MessageContext,
+    ) -> crate::core::protocol::SessionId {
+        context
+            .session_id
+            .clone()
+            .unwrap_or_else(|| crate::core::protocol::SessionId("unknown-session".to_string()))
+    }
+
+    fn emit_event(&self, event: SessionEvent) {
+        if let Some(event_tx) = &self.event_tx {
+            let _ = event_tx.try_send(event);
         }
     }
 
@@ -592,6 +687,14 @@ fn final_worker_message(task_id: &TaskId, output: Option<&str>) -> String {
         .filter(|value| !value.trim().is_empty())
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("任务已完成: {}", task_id.0))
+}
+
+fn build_contribution(
+    assignment: &RoleAssignment,
+    task_id: &TaskId,
+    output: &str,
+) -> RoleContribution {
+    RoleContribution::new(assignment, task_id.clone(), output.trim().to_string())
 }
 
 fn next_message_id() -> MessageId {

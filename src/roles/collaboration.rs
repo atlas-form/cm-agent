@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::protocol::WorkerId,
+    core::protocol::{TaskId, WorkerId},
     roles::{RoleId, RoleRoute},
 };
 
@@ -16,6 +16,31 @@ pub struct RoleAssignment {
 pub struct RoleCollaborationPlan {
     pub primary: RoleAssignment,
     pub support: Vec<RoleAssignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleContribution {
+    pub role_id: RoleId,
+    pub runtime_role: String,
+    pub worker_id: WorkerId,
+    pub task_id: TaskId,
+    pub content: String,
+    pub confidence: Option<u8>,
+    pub needs_follow_up: bool,
+}
+
+impl RoleContribution {
+    pub fn new(assignment: &RoleAssignment, task_id: TaskId, content: impl Into<String>) -> Self {
+        Self {
+            role_id: assignment.role_id.clone(),
+            runtime_role: assignment.runtime_role.clone(),
+            worker_id: assignment.worker_id.clone(),
+            task_id,
+            content: content.into(),
+            confidence: None,
+            needs_follow_up: false,
+        }
+    }
 }
 
 impl RoleCollaborationPlan {
@@ -37,6 +62,15 @@ impl RoleCollaborationPlan {
                 })
                 .collect(),
         }
+    }
+
+    pub fn assignment_for(&self, worker_id: &WorkerId) -> Option<&RoleAssignment> {
+        if self.primary.worker_id == *worker_id {
+            return Some(&self.primary);
+        }
+        self.support
+            .iter()
+            .find(|assignment| assignment.worker_id == *worker_id)
     }
 }
 
