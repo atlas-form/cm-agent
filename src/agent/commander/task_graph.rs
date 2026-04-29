@@ -618,11 +618,10 @@ fn evaluate_role_output(role: &str, output: &RoleWorkOutput) -> Vec<String> {
                 reasons.push("data role should mark data or interpretation risks".to_string());
             }
         }
-        "ops" => {
-            if output.recommendations.len() < 3 {
+        "ops"
+            if output.recommendations.len() < 3 => {
                 reasons.push("ops role should provide at least three recommendations".to_string());
             }
-        }
         "design" => {
             if output.recommendations.is_empty() {
                 reasons
