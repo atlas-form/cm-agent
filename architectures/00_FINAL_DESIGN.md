@@ -83,6 +83,12 @@ AgentManager
 
 `SessionRuntime` 不应该变成全局对象。
 
+`SessionRuntime` 必须使用 async 执行模型。
+
+禁止用长期 blocking loop 承载 Commander / Worker。
+
+长时间等待 LLM / action / IO 时必须 `await`，不能占用 blocking thread。
+
 ## SessionContext
 
 `SessionContext` 替代原来的 `World`。
@@ -107,6 +113,8 @@ AgentManager
 
 但唯一性只在一个 session 内成立。
 
+Commander 在 `SessionRuntime` 内作为 async task 运行。
+
 ## Worker
 
 仍然是执行生命体。
@@ -114,6 +122,8 @@ AgentManager
 但 Worker 只在一个 session 内运行。
 
 Worker 不跨 session 持有状态。
+
+Worker 在 `SessionRuntime` 内作为 async task 运行。
 
 ## 生命周期
 

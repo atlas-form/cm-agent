@@ -93,6 +93,7 @@ Web server 后续只依赖根 crate。
 
 - `SessionRuntime` 才是真正的短生命 runtime。
 - `AgentManager` 不是 runtime。
+- `SessionRuntime` 必须使用 async task，不允许用 blocking loop 承载大量 session。
 
 ## Phase 5：删除 World，改为 SessionContext
 
@@ -120,6 +121,8 @@ Web server 后续只依赖根 crate。
 
 - Commander 在 session 内创建。
 - Worker 在 session 内创建。
+- Commander / Worker 在 session 内作为 async task 运行。
+- 等待 LLM / action / IO 时必须 await。
 - Commander 仍然是 session 内唯一决策者。
 - Worker 仍然只和本 session Commander 通信。
 - Worker 不跨 session 持有状态。

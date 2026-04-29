@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, mpsc},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use tokio::sync::mpsc as tokio_mpsc;
 
@@ -11,7 +8,7 @@ use crate::{
     agent_error::{Result, SettingsError},
     cognition::Cognition,
     core::{
-        messaging::{MessageSend, TokioInbox, TokioOutbox},
+        messaging::MessageRx,
         protocol::{
             AgentId, Message, MessageContext, MessageId, Payload, SessionId, TaskId, TaskSpec,
             WorkerId, WorkerProfile,
@@ -56,7 +53,7 @@ pub struct SessionRuntime {
     session_context: Arc<SessionContext>,
     commander_tx: crate::core::messaging::MessageTx,
     worker_tx: crate::core::messaging::MessageTx,
-    response_rx: Option<mpsc::Receiver<Message>>,
+    response_rx: Option<MessageRx>,
     commander_loop: tokio::task::JoinHandle<()>,
     worker_loop: tokio::task::JoinHandle<()>,
     response_timeout: Duration,
@@ -67,7 +64,7 @@ impl SessionRuntime {
         let session_context = Arc::new(SessionContext::new());
         let (commander_tx, commander_rx) = tokio_mpsc::unbounded_channel::<Message>();
         let (worker_tx, worker_rx) = tokio_mpsc::unbounded_channel::<Message>();
-        let (response_tx, response_rx) = mpsc::channel::<Message>();
+        let (response_tx, response_rx) = tokio_mpsc::unbounded_channel::<Message>();
 
         session_context
             .directory()
@@ -83,25 +80,25 @@ impl SessionRuntime {
             AgentId("commander".to_string()),
             AgentId("external-host".to_string()),
             input.commander_cognition,
-            Box::new(TokioInbox::new(commander_rx)),
-            Box::new(ExternalOutbox::new(response_tx)),
+            commander_rx,
+            response_tx,
             session_context.clone(),
         );
 
         let worker = Worker::new(
             AgentId("worker-1".to_string()),
             input.worker_cognition,
-            Box::new(TokioInbox::new(worker_rx)),
-            Box::new(TokioOutbox::new(commander_tx.clone())),
+            worker_rx,
+            commander_tx.clone(),
         );
 
-        let commander_loop = tokio::task::spawn_blocking(move || {
+        let commander_loop = tokio::spawn(async move {
             let mut commander = commander;
-            commander.run();
+            commander.run().await;
         });
-        let worker_loop = tokio::task::spawn_blocking(move || {
+        let worker_loop = tokio::spawn(async move {
             let mut worker = worker;
-            worker.run();
+            worker.run().await;
         });
 
         Ok(Self {
@@ -141,14 +138,14 @@ impl SessionRuntime {
             .send(message)
             .map_err(|_| SettingsError::invalid("failed to send task to session commander"))?;
 
-        let Some(response_rx) = self.response_rx.take() else {
+        let Some(mut response_rx) = self.response_rx.take() else {
             return Err(SettingsError::invalid("session response receiver already used").into());
         };
         let timeout = self.response_timeout;
-        let received = tokio::task::spawn_blocking(move || response_rx.recv_timeout(timeout))
+        let received = tokio::time::timeout(timeout, response_rx.recv())
             .await
-            .map_err(|err| SettingsError::invalid(format!("session response join failed: {err}")))?
-            .map_err(|err| SettingsError::invalid(format!("session response failed: {err}")))?;
+            .map_err(|_| SettingsError::invalid("session response timed out"))?
+            .ok_or_else(|| SettingsError::invalid("session response channel closed"))?;
 
         let output = match received.payload {
             Payload::Text { content } => content,
@@ -192,22 +189,6 @@ impl SessionRuntime {
     }
 }
 
-struct ExternalOutbox {
-    tx: mpsc::Sender<Message>,
-}
-
-impl ExternalOutbox {
-    fn new(tx: mpsc::Sender<Message>) -> Self {
-        Self { tx }
-    }
-}
-
-impl MessageSend for ExternalOutbox {
-    fn send(&mut self, message: Message) {
-        let _ = self.tx.send(message);
-    }
-}
-
 fn default_worker_profile() -> WorkerProfile {
     WorkerProfile {
         worker_id: WorkerId("worker-1".to_string()),
@@ -228,11 +209,17 @@ fn default_worker_profile() -> WorkerProfile {
 }
 
 fn next_id(prefix: &str) -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static NEXT_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!("{prefix}-{millis}")
+    let sequence = NEXT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}-{millis}-{sequence}")
 }

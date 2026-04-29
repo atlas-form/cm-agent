@@ -1,6 +1,5 @@
-use std::{collections::HashMap, thread, time::Duration};
+use std::collections::HashMap;
 
-use futures::executor::block_on;
 use tracing::warn;
 
 use super::{Task, TaskMemory, WorkerPhase, WorkerState, action_bridge::decision_to_action};
@@ -8,7 +7,7 @@ use crate::{
     action::{Action, ActionResult, ActionState},
     cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind},
     core::{
-        messaging::{MessageReceive, MessageSend},
+        messaging::{MessageRx, MessageTx},
         protocol::{AgentId, Message, MessageId, Payload, TaskId, WorkerId},
     },
 };
@@ -22,8 +21,8 @@ pub struct Worker {
     current_task: Option<Task>,
     current_action: Option<BoxedAction>,
     cognition: Box<dyn Cognition + Send>,
-    receiver: Box<dyn MessageReceive + Send>,
-    sender: Box<dyn MessageSend + Send>,
+    receiver: MessageRx,
+    sender: MessageTx,
     memory: TaskMemory,
 }
 
@@ -31,8 +30,8 @@ impl Worker {
     pub fn new(
         id: AgentId,
         cognition: Box<dyn Cognition + Send>,
-        receiver: Box<dyn MessageReceive + Send>,
-        sender: Box<dyn MessageSend + Send>,
+        receiver: MessageRx,
+        sender: MessageTx,
     ) -> Self {
         Self {
             id,
@@ -47,38 +46,26 @@ impl Worker {
         }
     }
 
-    pub fn run(&mut self) {
+    pub async fn run(&mut self) {
         while self.state != WorkerState::Shutdown {
-            let had_messages = self.process_messages();
+            let Some(message) = self.receiver.recv().await else {
+                break;
+            };
+            self.handle_message(message);
 
-            if self.state == WorkerState::Running {
-                self.runtime_step();
-            } else if !had_messages {
-                thread::sleep(Duration::from_millis(10));
+            while self.state == WorkerState::Running {
+                self.runtime_step().await;
             }
         }
     }
-}
 
-impl Worker {
-    fn runtime_step(&mut self) {
+    async fn runtime_step(&mut self) {
         match self.phase {
-            WorkerPhase::Thinking => self.step_thinking(),
+            WorkerPhase::Thinking => self.step_thinking().await,
             WorkerPhase::Acting => self.step_acting(),
             WorkerPhase::Finished => self.handle_task_finished(),
             WorkerPhase::Failed => self.handle_task_failed(),
         }
-    }
-
-    fn process_messages(&mut self) -> bool {
-        let mut handled = 0usize;
-
-        while let Some(message) = self.receiver.get() {
-            handled += 1;
-            self.handle_message(message);
-        }
-
-        handled > 0
     }
 
     fn handle_message(&mut self, message: Message) {
@@ -130,7 +117,7 @@ impl Worker {
         self.memory.push_progress("task accepted");
     }
 
-    fn step_thinking(&mut self) {
+    async fn step_thinking(&mut self) {
         let Some(task) = self.current_task.as_ref() else {
             self.state = WorkerState::Idle;
             return;
@@ -147,7 +134,7 @@ impl Worker {
             context: build_context(self.id.clone(), self.phase, &self.memory),
         };
 
-        match block_on(self.cognition.evaluate(input)) {
+        match self.cognition.evaluate(input).await {
             CognitionResult::Success(output) => {
                 if let Some(action) = decision_to_action(&output) {
                     self.current_action = Some(action);
@@ -204,7 +191,7 @@ impl Worker {
             return;
         };
 
-        self.sender.send(Message {
+        let _ = self.sender.send(Message {
             id: next_message_id(),
             context: task.context,
             from: self.id.clone(),
@@ -229,7 +216,7 @@ impl Worker {
             .last_error
             .clone()
             .unwrap_or_else(|| "unknown error".to_string());
-        self.sender.send(Message {
+        let _ = self.sender.send(Message {
             id: next_message_id(),
             context: task.context,
             from: self.id.clone(),
@@ -270,23 +257,35 @@ fn build_context(worker_id: AgentId, phase: WorkerPhase, memory: &TaskMemory) ->
 }
 
 fn new_task_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static NEXT_TASK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
+    let sequence = NEXT_TASK_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    format!("task-{millis}")
+    format!("task-{millis}-{sequence}")
 }
 
 fn next_message_id() -> MessageId {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static NEXT_MESSAGE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
+    let sequence = NEXT_MESSAGE_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    MessageId(format!("msg-{millis}"))
+    MessageId(format!("msg-{millis}-{sequence}"))
 }

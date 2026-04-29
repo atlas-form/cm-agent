@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::Arc, thread, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
-use futures::executor::block_on;
 use tracing::{info, warn};
 
 use super::{
@@ -10,7 +9,7 @@ use super::{
 use crate::{
     cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind},
     core::{
-        messaging::{MessageReceive, MessageSend, MessageTx},
+        messaging::{MessageRx, MessageTx},
         protocol::{
             AgentId, DecisionIntent, Message, MessageContext, MessageId, Payload, TaskSpec,
             WorkerId, WorkerProfile,
@@ -32,8 +31,8 @@ pub struct Commander {
     current_task: Option<CommanderTask>,
     current_context: MessageContext,
     cognition: Box<dyn Cognition + Send>,
-    receiver: Box<dyn MessageReceive + Send>,
-    sender: Box<dyn MessageSend + Send>,
+    receiver: MessageRx,
+    sender: MessageTx,
     memory: TaskMemory,
     session_context: Arc<dyn CommanderSessionContext>,
 }
@@ -43,8 +42,8 @@ impl Commander {
         id: AgentId,
         world_id: AgentId,
         cognition: Box<dyn Cognition + Send>,
-        receiver: Box<dyn MessageReceive + Send>,
-        sender: Box<dyn MessageSend + Send>,
+        receiver: MessageRx,
+        sender: MessageTx,
         session_context: Arc<dyn CommanderSessionContext>,
     ) -> Self {
         Self {
@@ -62,46 +61,36 @@ impl Commander {
         }
     }
 
-    pub fn run(&mut self) {
+    pub async fn run(&mut self) {
         while self.state != CommanderState::Shutdown {
-            let had_messages = self.process_messages();
+            let Some(message) = self.receiver.recv().await else {
+                break;
+            };
+            self.handle_message(message).await;
 
-            if self.state == CommanderState::Running {
-                self.runtime_step();
-            } else if !had_messages {
-                thread::sleep(Duration::from_millis(10));
+            while self.state == CommanderState::Running {
+                self.runtime_step().await;
             }
         }
     }
 
-    fn runtime_step(&mut self) {
+    async fn runtime_step(&mut self) {
         match self.phase {
-            CommanderPhase::Thinking => self.step_thinking(),
+            CommanderPhase::Thinking => self.step_thinking().await,
             CommanderPhase::Idle => {
                 self.state = CommanderState::Idle;
             }
         }
     }
 
-    fn process_messages(&mut self) -> bool {
-        let mut handled = 0usize;
-
-        while let Some(message) = self.receiver.get() {
-            handled += 1;
-            self.handle_message(message);
-        }
-
-        handled > 0
-    }
-
-    fn handle_message(&mut self, message: Message) {
+    async fn handle_message(&mut self, message: Message) {
         let context = message.context.clone();
         match message.payload {
             Payload::HumanCommand { task } => self.on_human_command(task, context),
             Payload::WorkerReportStarted { worker_id, task_id } => {
                 self.memory
                     .push_progress(format!("worker {} started {}", worker_id.0, task_id.0));
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     context,
                     self.id.clone(),
@@ -114,7 +103,7 @@ impl Commander {
             Payload::WorkerReportFinished { worker_id, task_id } => {
                 self.memory
                     .push_progress(format!("worker {} finished {}", worker_id.0, task_id.0));
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     context,
                     self.id.clone(),
@@ -135,7 +124,7 @@ impl Commander {
                     "worker {} failed {}: {}",
                     worker_id.0, task_id.0, reason
                 ));
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     context,
                     self.id.clone(),
@@ -172,10 +161,10 @@ impl Commander {
         self.state = CommanderState::Running;
     }
 
-    fn step_thinking(&mut self) {
+    async fn step_thinking(&mut self) {
         let input = self.build_cognition_input();
 
-        let routed = match block_on(self.cognition.evaluate(input)) {
+        let routed = match self.cognition.evaluate(input).await {
             CognitionResult::Success(output) => {
                 info!(output = ?output, "commander cognition output");
                 decision_intent_from_json(&output, self.current_task.clone())
@@ -195,7 +184,7 @@ impl Commander {
         match routed.intent {
             DecisionIntent::ExecuteTask { task } => {
                 if !self.dispatch_task_to_worker(task, routed.target_worker_id) {
-                    self.sender.send(Message::new_with_context(
+                    let _ = self.sender.send(Message::new_with_context(
                         next_message_id(),
                         self.current_context.clone(),
                         self.id.clone(),
@@ -211,7 +200,7 @@ impl Commander {
                     .clarification
                     .map(|question| format!("需要补充信息后再路由：{question}"))
                     .unwrap_or_else(|| "已评估当前输入：本轮无需执行新任务。".to_string());
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
@@ -220,7 +209,7 @@ impl Commander {
                 ));
             }
             DecisionIntent::IgnoreNewTask => {
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
@@ -231,7 +220,7 @@ impl Commander {
                 ));
             }
             DecisionIntent::KeepCurrentTask => {
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
@@ -242,7 +231,7 @@ impl Commander {
                 ));
             }
             DecisionIntent::ReplaceCurrentTask { task } => {
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
@@ -253,7 +242,7 @@ impl Commander {
                 ));
             }
             DecisionIntent::StrategyHint { hint } => {
-                self.sender.send(Message::new_with_context(
+                let _ = self.sender.send(Message::new_with_context(
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
@@ -361,12 +350,18 @@ impl Commander {
 }
 
 fn next_message_id() -> MessageId {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static NEXT_MESSAGE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
+    let sequence = NEXT_MESSAGE_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    MessageId(format!("msg-{millis}"))
+    MessageId(format!("msg-{millis}-{sequence}"))
 }

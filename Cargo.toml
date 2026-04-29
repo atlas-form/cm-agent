@@ -9,6 +9,7 @@ include = [
     "Cargo.toml",
     "LICENSE",
     "src/**",
+    "benches/**",
     "prompts/**",
     "config/services-example.toml",
     "architectures/**",
@@ -30,3 +31,10 @@ toolcraft-config = { version = "0.2.0" }
 toolcraft-request = { version = "0.2.3" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+[dev-dependencies]
+criterion = "0.8"
+
+[[bench]]
+name = "session_runtime"
+harness = false
