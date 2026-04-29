@@ -10,10 +10,10 @@ use crate::{
     agent_error::Result,
     agent_session::{
         AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, MemoryStore,
-        NoopMemoryStore, SessionEventRx, SessionResult, SessionRuntimeConfig,
+        NoopMemoryStore, RoleCognitionFactory, SessionEventRx, SessionResult, SessionRuntimeConfig,
     },
     core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
-    roles::RoleCatalog,
+    roles::{RoleCatalog, RoleProfile},
 };
 
 #[derive(Clone)]
@@ -21,12 +21,21 @@ pub struct AgentManagerConfig {
     pub runtime: SessionRuntimeConfig,
     pub roles: RoleCatalog,
     pub commander_cognition: CognitionFactory,
-    pub worker_cognition: CognitionFactory,
+    pub worker_cognition: RoleCognitionFactory,
     pub memory_store: Arc<dyn MemoryStore>,
 }
 
 impl AgentManagerConfig {
     pub fn new(commander_cognition: CognitionFactory, worker_cognition: CognitionFactory) -> Self {
+        let worker_cognition =
+            Arc::new(move |_: &RoleProfile| worker_cognition()) as RoleCognitionFactory;
+        Self::new_role_aware(commander_cognition, worker_cognition)
+    }
+
+    pub fn new_role_aware(
+        commander_cognition: CognitionFactory,
+        worker_cognition: RoleCognitionFactory,
+    ) -> Self {
         Self {
             runtime: SessionRuntimeConfig::default(),
             roles: RoleCatalog::builtin(),

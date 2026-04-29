@@ -31,9 +31,10 @@ pub(crate) use action::{
 };
 pub(crate) use agent_session::{
     AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, EndpointDirectory,
-    MemoryScope, MemoryStore, NoopMemoryStore, SessionBlackboard, SessionContext, SessionEventRx,
-    SessionEventTx, SessionExtensions, SessionResult, SessionRuntime, SessionRuntimeConfig,
-    SessionRuntimeInput, SessionSnapshot, WorkerCatalog, context,
+    MemoryScope, MemoryStore, NoopMemoryStore, RoleCognitionFactory, SessionBlackboard,
+    SessionContext, SessionEventRx, SessionEventTx, SessionExtensions, SessionResult,
+    SessionRuntime, SessionRuntimeConfig, SessionRuntimeInput, SessionSnapshot, WorkerCatalog,
+    context,
 };
 pub(crate) use cognition::{
     Cognition, CognitionDecoder, CognitionEngine, CognitionFailure, CognitionInput,
@@ -45,6 +46,7 @@ pub(crate) use perception::{
     StimulusSpan, TextUtterancePerception,
 };
 pub(crate) use roles::{
-    RoleAction, RoleCatalog, RoleId, RoleProfile, RolePromptBuilder, RolePromptInput,
+    RoleAction, RoleCatalog, RoleId, RoleProfile, RolePromptBuilder, RolePromptInput, RoleRoute,
+    RoleRouteInput, RoleRouter, RoleScore,
 };
 pub extern crate tracing;

@@ -6,18 +6,20 @@ use crate::{
     agent_error::Result,
     cognition::Cognition,
     core::protocol::{AgentId, MessageContext, SessionEvent, SessionId, UserId, WorkspaceId},
-    roles::RoleCatalog,
+    roles::{RoleCatalog, RoleProfile},
 };
 
 pub type CognitionFactory =
     Arc<dyn Fn() -> Result<Box<dyn Cognition + Send>> + Send + Sync + 'static>;
+pub type RoleCognitionFactory =
+    Arc<dyn Fn(&RoleProfile) -> Result<Box<dyn Cognition + Send>> + Send + Sync + 'static>;
 
 #[derive(Clone)]
 pub struct AgentSessionConfig {
     pub runtime: SessionRuntimeConfig,
     pub roles: RoleCatalog,
     pub commander_cognition: CognitionFactory,
-    pub worker_cognition: CognitionFactory,
+    pub worker_cognition: RoleCognitionFactory,
     pub memory_store: Arc<dyn MemoryStore>,
 }
 
@@ -85,7 +87,7 @@ impl AgentSession {
             .map(|role| {
                 Ok(crate::agent_session::SessionRuntimeWorkerInput {
                     role: role.clone(),
-                    cognition: (self.config.worker_cognition)()?,
+                    cognition: (self.config.worker_cognition)(role)?,
                 })
             })
             .collect::<Result<Vec<_>>>()?;

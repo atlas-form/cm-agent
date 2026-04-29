@@ -1,9 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
 use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, SessionId, UserId,
+    CognitionResult, RoleProfile, SessionId, UserId,
 };
 use serde_json::json;
 
@@ -145,4 +148,43 @@ async fn role_worker_receives_role_context() {
         Some("ops")
     );
     assert_eq!(manager.active_session_count(), 0);
+}
+
+#[tokio::test]
+async fn role_aware_worker_factory_receives_each_builtin_role() {
+    let available_workers = Arc::new(Mutex::new(None));
+    let constructed_roles = Arc::new(Mutex::new(HashSet::new()));
+    let commander_capture = Arc::clone(&available_workers);
+    let role_capture = Arc::clone(&constructed_roles);
+    let manager = AgentManager::new(AgentManagerConfig::new_role_aware(
+        Arc::new(move || {
+            Ok(Box::new(CapturingCommanderCognition {
+                available_workers: Arc::clone(&commander_capture),
+            }))
+        }),
+        Arc::new(move |role: &RoleProfile| {
+            role_capture
+                .lock()
+                .expect("lock constructed roles")
+                .insert(role.runtime_role.clone());
+            Ok(Box::new(NoopWorkerCognition))
+        }),
+    ));
+
+    manager
+        .run_request(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-factory".to_string()),
+            input: "verify role factory".to_string(),
+        })
+        .await
+        .expect("request should complete");
+
+    let constructed_roles = constructed_roles.lock().expect("lock constructed roles");
+    assert_eq!(constructed_roles.len(), 8);
+    assert!(constructed_roles.contains("ops"));
+    assert!(constructed_roles.contains("data"));
+    assert!(constructed_roles.contains("web"));
 }

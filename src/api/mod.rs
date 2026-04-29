@@ -6,13 +6,16 @@ pub use crate::{
     agent_error::{Error, Result},
     agent_manager::{AgentManager, AgentManagerConfig, AgentRequest},
     agent_session::{
-        CognitionFactory, MemoryScope, MemoryStore, NoopMemoryStore, SessionEventRx,
-        SessionEventTx, SessionResult, SessionRuntimeConfig, SessionSnapshot,
+        CognitionFactory, MemoryScope, MemoryStore, NoopMemoryStore, RoleCognitionFactory,
+        SessionEventRx, SessionEventTx, SessionResult, SessionRuntimeConfig, SessionSnapshot,
     },
     cognition::{
         Cognition, CognitionEngine, CognitionFailure, CognitionInput, CognitionOutput,
         CognitionResult, Context, Fact, FailureReason, Intent, IntentKind, JsonTemplateDecoder,
     },
     core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
-    roles::{RoleAction, RoleCatalog, RoleId, RoleProfile, RolePromptBuilder, RolePromptInput},
+    roles::{
+        RoleAction, RoleCatalog, RoleId, RoleProfile, RolePromptBuilder, RolePromptInput,
+        RoleRoute, RoleRouteInput, RoleRouter, RoleScore,
+    },
 };
