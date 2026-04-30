@@ -59,12 +59,13 @@ pub struct SessionRuntimeInput {
     pub event_tx: Option<SessionEventTx>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionResult {
     pub session_id: SessionId,
     pub output: String,
     pub task_graphs: Vec<TaskGraphMemorySummary>,
     pub role_summaries: Vec<crate::RoleMemorySummary>,
+    pub worker_details: Vec<crate::WorkerDetail>,
     pub risks: Vec<String>,
     pub open_questions: Vec<String>,
     pub evaluation_summary: Option<String>,
@@ -256,6 +257,10 @@ impl SessionRuntime {
             .iter()
             .flat_map(|summary| summary.role_summaries.clone())
             .collect::<Vec<_>>();
+        let worker_details = task_graphs
+            .iter()
+            .flat_map(|summary| summary.worker_details.clone())
+            .collect::<Vec<_>>();
         let risks = unique_strings(
             task_graphs
                 .iter()
@@ -281,6 +286,7 @@ impl SessionRuntime {
             output,
             task_graphs,
             role_summaries,
+            worker_details,
             risks,
             open_questions,
             evaluation_summary,

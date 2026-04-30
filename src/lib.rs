@@ -38,7 +38,7 @@ pub(crate) use agent_session::{
     MemoryStore, MemoryWriteOutcome, NoopMemoryStore, RoleCognitionFactory, RoleMemorySummary,
     SessionBlackboard, SessionContext, SessionEventRx, SessionEventTx, SessionExtensions,
     SessionResult, SessionRuntime, SessionRuntimeConfig, SessionRuntimeInput, SessionSnapshot,
-    TaskGraphMemorySummary, WorkerCatalog, context,
+    TaskGraphMemorySummary, WorkerCatalog, WorkerDetail, context,
 };
 pub(crate) use cognition::{
     Cognition, CognitionDecoder, CognitionEngine, CognitionFailure, CognitionInput,

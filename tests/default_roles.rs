@@ -404,6 +404,28 @@ async fn task_graph_result_carries_memory_snapshot_fields() {
         .expect("request should complete");
 
     assert_eq!(result.task_graphs.len(), 1);
+    assert!(result.worker_details.iter().any(|detail| {
+        detail.role == "data"
+            && detail.title == "数据诊断"
+            && detail.objective.contains("分析")
+            && detail
+                .role_output
+                .as_ref()
+                .is_some_and(|output| output.summary.contains("数据角色已完成"))
+            && detail
+                .evaluation
+                .as_ref()
+                .is_some_and(|evaluation| evaluation.passed)
+    }));
+    assert!(result.worker_details.iter().any(|detail| {
+        detail.role == "creative"
+            && detail.role_output.as_ref().is_some_and(|output| {
+                output
+                    .recommendations
+                    .iter()
+                    .any(|item| item.contains("直播"))
+            })
+    }));
     assert!(
         result
             .role_summaries

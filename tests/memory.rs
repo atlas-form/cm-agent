@@ -11,7 +11,8 @@ use cm_agent::api::{
     CognitionResult, FileMemoryStore, FileMemoryStoreError, InMemoryMemoryStore, MemoryBudget,
     MemoryCompactionPolicy, MemoryId, MemoryKind, MemoryQuery, MemoryRecord, MemoryScope,
     MemorySource, MemoryStore, RoleMemorySummary, SessionEvent, SessionId, SessionSnapshot,
-    TaskGraphId, TaskGraphMemorySummary, TaskNodeId, UserId, WorkerId, WorkerReportStatus,
+    TaskGraphId, TaskGraphMemorySummary, TaskNodeId, UserId, WorkerDetail, WorkerId,
+    WorkerReportStatus,
 };
 use serde_json::json;
 
@@ -566,6 +567,23 @@ fn session_snapshot_persists_role_risks_questions_and_evaluation() {
         open_questions: vec!["需要确认 GMV 统计口径".to_string()],
         status: WorkerReportStatus::Completed,
     };
+    let worker_detail = WorkerDetail {
+        graph_id: TaskGraphId("graph-snapshot".to_string()),
+        node_id: TaskNodeId("node-data".to_string()),
+        task_id: cm_agent::api::TaskId("graph-snapshot:node-data".to_string()),
+        worker_id: WorkerId("worker.data".to_string()),
+        role: "data".to_string(),
+        title: "数据诊断".to_string(),
+        objective: "分析数据指标归因".to_string(),
+        attempt: 1,
+        status: WorkerReportStatus::Completed,
+        content: "数据角色完成归因口径诊断".to_string(),
+        role_output: None,
+        evidence: vec!["原始任务".to_string()],
+        risks: vec!["口径不一致会导致误判".to_string()],
+        open_questions: vec!["需要确认 GMV 统计口径".to_string()],
+        evaluation: None,
+    };
     let outcome = MemoryStore::persist_session(
         &store,
         &scope,
@@ -577,11 +595,13 @@ fn session_snapshot_persists_role_risks_questions_and_evaluation() {
                 root_task: "分析数据指标归因".to_string(),
                 roles: vec!["data".to_string()],
                 role_summaries: vec![role_summary.clone()],
+                worker_details: vec![worker_detail.clone()],
                 risks: role_summary.risks.clone(),
                 open_questions: role_summary.open_questions.clone(),
                 evaluation_summary: Some("node-data passed=true score=1.00".to_string()),
             }],
             role_summaries: vec![role_summary],
+            worker_details: vec![worker_detail],
             risks: vec!["口径不一致会导致误判".to_string()],
             open_questions: vec!["需要确认 GMV 统计口径".to_string()],
             evaluation_summary: Some("node-data passed=true score=1.00".to_string()),

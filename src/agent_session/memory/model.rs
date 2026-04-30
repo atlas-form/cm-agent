@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{MemoryCompactionPolicy, MemoryWriteOutcome};
 use crate::core::protocol::{
-    AgentId, SessionId, TaskGraphId, TaskId, TaskNodeId, UserId, WorkerId, WorkerReportStatus,
-    WorkspaceId,
+    AgentId, Evaluation, RoleWorkOutput, SessionId, TaskGraphId, TaskId, TaskNodeId, UserId,
+    WorkerId, WorkerReportStatus, WorkspaceId,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -35,24 +35,26 @@ pub trait MemoryStore: Send + Sync {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SessionSnapshot {
     pub summary: String,
     pub final_output: String,
     pub blackboard: BTreeMap<String, String>,
     pub task_graphs: Vec<TaskGraphMemorySummary>,
     pub role_summaries: Vec<RoleMemorySummary>,
+    pub worker_details: Vec<WorkerDetail>,
     pub risks: Vec<String>,
     pub open_questions: Vec<String>,
     pub evaluation_summary: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskGraphMemorySummary {
     pub graph_id: TaskGraphId,
     pub root_task: String,
     pub roles: Vec<String>,
     pub role_summaries: Vec<RoleMemorySummary>,
+    pub worker_details: Vec<WorkerDetail>,
     pub risks: Vec<String>,
     pub open_questions: Vec<String>,
     pub evaluation_summary: Option<String>,
@@ -71,6 +73,25 @@ pub struct RoleMemorySummary {
     pub risks: Vec<String>,
     pub open_questions: Vec<String>,
     pub status: WorkerReportStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkerDetail {
+    pub graph_id: TaskGraphId,
+    pub node_id: TaskNodeId,
+    pub task_id: TaskId,
+    pub worker_id: WorkerId,
+    pub role: String,
+    pub title: String,
+    pub objective: String,
+    pub attempt: u8,
+    pub status: WorkerReportStatus,
+    pub content: String,
+    pub role_output: Option<RoleWorkOutput>,
+    pub evidence: Vec<String>,
+    pub risks: Vec<String>,
+    pub open_questions: Vec<String>,
+    pub evaluation: Option<Evaluation>,
 }
 
 #[derive(Debug, Default)]

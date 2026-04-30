@@ -11,14 +11,14 @@ pub use crate::{
         MemoryCompactionStats, MemoryCompactor, MemoryId, MemoryKind, MemoryQuery, MemoryRecord,
         MemoryScope, MemorySource, MemoryStore, MemoryWriteOutcome, NoopMemoryStore,
         RoleCognitionFactory, RoleMemorySummary, SessionEventRx, SessionEventTx, SessionResult,
-        SessionRuntimeConfig, SessionSnapshot, TaskGraphMemorySummary,
+        SessionRuntimeConfig, SessionSnapshot, TaskGraphMemorySummary, WorkerDetail,
     },
     cognition::{
         Cognition, CognitionEngine, CognitionFailure, CognitionInput, CognitionOutput,
         CognitionResult, Context, Fact, FailureReason, Intent, IntentKind, JsonTemplateDecoder,
     },
     core::protocol::{
-        AgentId, SessionEvent, SessionId, TaskGraphId, TaskNodeId, UserId, WorkerId,
+        AgentId, SessionEvent, SessionId, TaskGraphId, TaskId, TaskNodeId, UserId, WorkerId,
         WorkerReportStatus, WorkspaceId,
     },
     roles::{

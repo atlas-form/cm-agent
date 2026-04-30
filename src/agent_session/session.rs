@@ -184,6 +184,7 @@ impl AgentSession {
                     blackboard: blackboard.into_iter().collect::<BTreeMap<_, _>>(),
                     task_graphs: result.task_graphs.clone(),
                     role_summaries: result.role_summaries.clone(),
+                    worker_details: result.worker_details.clone(),
                     risks: result.risks.clone(),
                     open_questions: result.open_questions.clone(),
                     evaluation_summary: result.evaluation_summary.clone(),

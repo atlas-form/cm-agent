@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    agent_session::{RoleMemorySummary, TaskGraphMemorySummary},
+    agent_session::{RoleMemorySummary, TaskGraphMemorySummary, WorkerDetail},
     core::protocol::{
         Evaluation, RoleWorkOutput, TaskGraph, TaskGraphId, TaskId, TaskNode, TaskNodeId,
         WorkerAssignment, WorkerId, WorkerReport, WorkerReportStatus,
@@ -254,6 +254,37 @@ impl TaskGraphRuntime {
     }
 
     pub fn memory_summary(&self) -> TaskGraphMemorySummary {
+        let worker_details = self
+            .graph
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let report = self.reports.get(&node.id)?;
+                let evaluation = self
+                    .evaluations
+                    .iter()
+                    .rev()
+                    .find(|evaluation| evaluation.node_id == node.id)
+                    .cloned();
+                Some(WorkerDetail {
+                    graph_id: report.graph_id.clone(),
+                    node_id: report.node_id.clone(),
+                    task_id: report.task_id.clone(),
+                    worker_id: report.worker_id.clone(),
+                    role: report.role.clone(),
+                    title: node.title.clone(),
+                    objective: node.objective.clone(),
+                    attempt: self.attempts.get(&node.id).copied().unwrap_or(1),
+                    status: report.status.clone(),
+                    content: report.content.clone(),
+                    role_output: report.role_output.clone(),
+                    evidence: report.evidence.clone(),
+                    risks: report.risks.clone(),
+                    open_questions: report.open_questions.clone(),
+                    evaluation,
+                })
+            })
+            .collect::<Vec<_>>();
         let role_summaries = self
             .graph
             .nodes
@@ -314,6 +345,7 @@ impl TaskGraphRuntime {
             graph_id: self.graph.graph_id.clone(),
             root_task: self.graph.root_task.clone(),
             roles,
+            worker_details,
             risks: unique_strings(
                 role_summaries
                     .iter()
