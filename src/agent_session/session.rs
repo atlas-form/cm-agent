@@ -114,15 +114,30 @@ impl AgentSession {
         let result = runtime.run_until_complete().await;
         let blackboard = runtime.session_context().blackboard().snapshot();
         runtime.shutdown().await;
-        let persisted_count = self.persist_if_ok(&result, blackboard);
-        if persisted_count > 0
+        let memory_outcome = self.persist_if_ok(&result, blackboard);
+        if memory_outcome.written > 0
             && let Some(event_tx) = event_tx_for_persist
             && let Ok(result) = &result
         {
+            if memory_outcome.compaction.has_activity() {
+                let stats = &memory_outcome.compaction;
+                let _ = event_tx
+                    .send(SessionEvent::MemoryCompacted {
+                        session_id: result.session_id.clone(),
+                        input_records: stats.input_records,
+                        output_records: stats.output_records,
+                        truncated_records: stats.truncated_records,
+                        merged_records: stats.merged_records,
+                        dropped_records: stats.dropped_records,
+                        before_chars: stats.before_chars,
+                        after_chars: stats.after_chars,
+                    })
+                    .await;
+            }
             let _ = event_tx
                 .send(SessionEvent::MemoryPersisted {
                     session_id: result.session_id.clone(),
-                    count: persisted_count,
+                    count: memory_outcome.written,
                 })
                 .await;
         }
@@ -157,7 +172,7 @@ impl AgentSession {
         &self,
         result: &Result<SessionResult>,
         blackboard: std::collections::HashMap<String, String>,
-    ) -> usize {
+    ) -> crate::MemoryWriteOutcome {
         if let Ok(result) = result {
             return self.config.memory_store.persist_session(
                 &self.memory_scope(Some(result.session_id.clone())),
@@ -168,6 +183,6 @@ impl AgentSession {
                 },
             );
         }
-        0
+        crate::MemoryWriteOutcome::default()
     }
 }

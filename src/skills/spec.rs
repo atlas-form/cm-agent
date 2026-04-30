@@ -23,7 +23,6 @@ pub enum SkillCategory {
     Custom(String),
 }
 
-
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]

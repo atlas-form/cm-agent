@@ -6,8 +6,9 @@ use std::{
 use async_trait::async_trait;
 use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, InMemoryMemoryStore, MemoryId, MemoryKind, MemoryQuery, MemoryRecord,
-    MemoryScope, MemorySource, MemoryStore, SessionEvent, SessionId, UserId,
+    CognitionResult, InMemoryMemoryStore, MemoryBudget, MemoryCompactionPolicy, MemoryId,
+    MemoryKind, MemoryQuery, MemoryRecord, MemoryScope, MemorySource, MemoryStore, SessionEvent,
+    SessionId, UserId,
 };
 use serde_json::json;
 
@@ -77,6 +78,31 @@ impl Cognition for NoopWorker {
     }
 }
 
+fn test_memory_record(
+    id: impl Into<String>,
+    scope: MemoryScope,
+    kind: MemoryKind,
+    key: Option<&str>,
+    content: impl Into<String>,
+    confidence: f32,
+) -> MemoryRecord {
+    MemoryRecord {
+        id: MemoryId(id.into()),
+        scope,
+        kind,
+        key: key.map(str::to_string),
+        content: content.into(),
+        confidence,
+        tags: vec!["test".to_string()],
+        source: MemorySource {
+            kind: "test".to_string(),
+            description: "seed memory".to_string(),
+        },
+        created_at: SystemTime::now(),
+        updated_at: SystemTime::now(),
+    }
+}
+
 #[test]
 fn in_memory_store_filters_by_scope_kind_and_limit() {
     let store = InMemoryMemoryStore::new();
@@ -143,6 +169,228 @@ fn in_memory_store_filters_by_scope_kind_and_limit() {
     assert_eq!(bundle.records.len(), 1);
     assert_eq!(bundle.records[0].kind, MemoryKind::UserPreference);
     assert!(bundle.records[0].content.contains("抖音"));
+}
+
+#[test]
+fn record_is_truncated_before_write() {
+    let store = InMemoryMemoryStore::with_policy(MemoryCompactionPolicy {
+        max_record_chars: 40,
+        ..MemoryCompactionPolicy::default()
+    });
+    let scope = MemoryScope {
+        user_id: Some(UserId("truncate-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+    let long_content = "alpha ".repeat(40);
+
+    let outcome = MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "truncate",
+            scope,
+            MemoryKind::UserPreference,
+            Some("long"),
+            long_content,
+            1.2,
+        ),
+    );
+
+    let records = store.records();
+    assert_eq!(outcome.written, 1);
+    assert_eq!(outcome.compaction.truncated_records, 1);
+    assert_eq!(records.len(), 1);
+    assert!(records[0].content.chars().count() <= 40);
+    assert!(records[0].content.contains("memory compacted"));
+    assert_eq!(records[0].confidence, 1.0);
+}
+
+#[test]
+fn empty_record_is_not_written() {
+    let store = InMemoryMemoryStore::new();
+    let scope = MemoryScope {
+        user_id: Some(UserId("empty-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+
+    let outcome = MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "empty",
+            scope,
+            MemoryKind::ConversationFact,
+            Some("blank"),
+            "   \n\t   ",
+            0.5,
+        ),
+    );
+
+    assert_eq!(outcome.written, 0);
+    assert_eq!(outcome.compaction.dropped_records, 1);
+    assert!(store.records().is_empty());
+}
+
+#[test]
+fn same_key_upsert_does_not_grow_store() {
+    let store = InMemoryMemoryStore::new();
+    let scope = MemoryScope {
+        user_id: Some(UserId("upsert-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+
+    MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "first",
+            scope.clone(),
+            MemoryKind::UserPreference,
+            Some("platform"),
+            "用户偏好抖音",
+            0.5,
+        ),
+    );
+    let outcome = MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "second",
+            scope,
+            MemoryKind::UserPreference,
+            Some("platform"),
+            "用户偏好小红书",
+            0.8,
+        ),
+    );
+
+    let records = store.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].id.0, "first");
+    assert_eq!(records[0].content, "用户偏好小红书");
+    assert_eq!(outcome.compaction.merged_records, 1);
+}
+
+#[test]
+fn scope_kind_compaction_prunes_unkeyed_records() {
+    let store = InMemoryMemoryStore::with_policy(MemoryCompactionPolicy {
+        max_records_per_scope_kind: 4,
+        max_unkeyed_records_per_scope_kind: 2,
+        ..MemoryCompactionPolicy::default()
+    });
+    let scope = MemoryScope {
+        user_id: Some(UserId("prune-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+
+    MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "keyed-a",
+            scope.clone(),
+            MemoryKind::ConversationFact,
+            Some("a"),
+            "关键事实 A",
+            0.9,
+        ),
+    );
+    MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "keyed-b",
+            scope.clone(),
+            MemoryKind::ConversationFact,
+            Some("b"),
+            "关键事实 B",
+            0.8,
+        ),
+    );
+    for index in 0 .. 10 {
+        MemoryStore::upsert_record(
+            &store,
+            test_memory_record(
+                format!("unkeyed-{index}"),
+                scope.clone(),
+                MemoryKind::ConversationFact,
+                None,
+                format!("临时事实 {index}"),
+                0.3 + (index as f32 * 0.01),
+            ),
+        );
+    }
+
+    let records = store.records();
+    let scoped_facts = records
+        .iter()
+        .filter(|record| record.kind == MemoryKind::ConversationFact)
+        .collect::<Vec<_>>();
+    assert_eq!(scoped_facts.len(), 4);
+    assert_eq!(
+        scoped_facts
+            .iter()
+            .filter(|record| record.key.is_none())
+            .count(),
+        2
+    );
+    assert!(
+        scoped_facts
+            .iter()
+            .any(|record| record.key.as_deref() == Some("a"))
+    );
+    assert!(
+        scoped_facts
+            .iter()
+            .any(|record| record.key.as_deref() == Some("b"))
+    );
+}
+
+#[test]
+fn load_bundle_respects_char_budget_even_after_store_compaction() {
+    let store = InMemoryMemoryStore::new();
+    let scope = MemoryScope {
+        user_id: Some(UserId("budget-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+    for index in 0 .. 4 {
+        MemoryStore::upsert_record(
+            &store,
+            test_memory_record(
+                format!("budget-{index}"),
+                scope.clone(),
+                MemoryKind::UserPreference,
+                Some(&format!("pref-{index}")),
+                format!("偏好 {index} {}", "内容".repeat(20)),
+                0.7,
+            ),
+        );
+    }
+
+    let mut query = MemoryQuery::scoped(scope);
+    query.budget = MemoryBudget {
+        max_records: 4,
+        max_chars: 30,
+    };
+
+    let bundle = MemoryStore::load_bundle(&store, query);
+    let total_chars = bundle
+        .records
+        .iter()
+        .map(|record| record.content.chars().count())
+        .sum::<usize>();
+
+    assert!(total_chars <= 30);
+    assert!(!bundle.records.is_empty());
 }
 
 #[tokio::test]
@@ -251,6 +499,11 @@ async fn stream_reports_memory_load_and_persist_events() {
         events
             .iter()
             .any(|event| matches!(event, SessionEvent::MemoryLoaded { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SessionEvent::MemoryCompacted { .. }))
     );
     assert!(
         events

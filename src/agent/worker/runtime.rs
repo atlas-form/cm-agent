@@ -11,6 +11,10 @@ use crate::{
         protocol::{AgentId, Message, MessageId, Payload, TaskId, WorkerId},
     },
     roles::{RoleProfile, RolePromptBuilder, RolePromptInput},
+    skills::{
+        SkillContext, SkillExecutionResult, SkillExecutionStatus, SkillExecutor, SkillExecutorSet,
+        SkillRequest,
+    },
 };
 
 pub type BoxedAction = Box<dyn Action<Result = ActionResult<String, String, ()>> + Send>;
@@ -26,6 +30,7 @@ pub struct Worker {
     receiver: MessageRx,
     sender: MessageTx,
     memory: TaskMemory,
+    skill_executor: Option<SkillExecutorSet>,
 }
 
 impl Worker {
@@ -36,6 +41,13 @@ impl Worker {
         sender: MessageTx,
     ) -> Self {
         let id = AgentId(format!("worker.{}", role.runtime_role));
+        let skill_executor = SkillExecutorSet::staged()
+            .map_err(|error| {
+                warn!(error = %error, "worker skill executor initialization failed");
+                error
+            })
+            .ok();
+
         Self {
             id,
             role,
@@ -47,6 +59,7 @@ impl Worker {
             receiver,
             sender,
             memory: TaskMemory::default(),
+            skill_executor,
         }
     }
 
@@ -146,7 +159,7 @@ impl Worker {
     }
 
     async fn step_thinking(&mut self) {
-        let Some(task) = self.current_task.as_ref() else {
+        let Some(task) = self.current_task.clone() else {
             self.state = WorkerState::Idle;
             return;
         };
@@ -159,13 +172,15 @@ impl Worker {
                 kind: IntentKind::Planning,
                 description: task.description.clone(),
             },
-            context: self.build_cognition_context(task),
+            context: self.build_cognition_context(&task),
         };
 
         match self.cognition.evaluate(input).await {
             CognitionResult::Success(output) => {
+                let output_text = output.to_string();
                 self.memory
-                    .set_state("last_cognition_output", output.to_string());
+                    .set_state("last_cognition_output", output_text.clone());
+                self.execute_requested_skills(&task, &output_text).await;
                 if let Some(action) = decision_to_action(&output) {
                     self.current_action = Some(action);
                     self.phase = WorkerPhase::Acting;
@@ -229,44 +244,38 @@ impl Worker {
             payload: task
                 .assignment
                 .as_ref()
-                .map(|assignment| Payload::WorkerReport {
-                    report: crate::core::protocol::WorkerReport {
-                        graph_id: assignment.graph_id.clone(),
-                        node_id: assignment.node_id.clone(),
-                        task_id: TaskId(task.id.clone()),
-                        worker_id: WorkerId(self.id.0.clone()),
-                        role: assignment.role.clone(),
-                        content: self
-                            .memory
-                            .state
-                            .get("last_cognition_output")
-                            .map(|output| parse_worker_role_output(output).content)
-                            .unwrap_or_default(),
-                        role_output: self
-                            .memory
-                            .state
-                            .get("last_cognition_output")
-                            .and_then(|output| parse_worker_role_output(output).role_output),
-                        evidence: self
-                            .memory
-                            .state
-                            .get("last_cognition_output")
-                            .map(|output| parse_worker_role_output(output).evidence)
-                            .unwrap_or_default(),
-                        risks: self
-                            .memory
-                            .state
-                            .get("last_cognition_output")
-                            .map(|output| parse_worker_role_output(output).risks)
-                            .unwrap_or_default(),
-                        open_questions: self
-                            .memory
-                            .state
-                            .get("last_cognition_output")
-                            .map(|output| parse_worker_role_output(output).open_questions)
-                            .unwrap_or_default(),
-                        status: crate::core::protocol::WorkerReportStatus::Completed,
-                    },
+                .map(|assignment| {
+                    let parsed = self
+                        .memory
+                        .state
+                        .get("last_cognition_output")
+                        .map(|output| parse_worker_role_output(output))
+                        .unwrap_or_default();
+                    let skill_results = self
+                        .memory
+                        .state
+                        .get("last_skill_results")
+                        .and_then(|value| {
+                            serde_json::from_str::<Vec<SkillExecutionResult>>(value).ok()
+                        })
+                        .unwrap_or_default();
+                    let parsed = merge_skill_results(parsed, &skill_results);
+
+                    Payload::WorkerReport {
+                        report: crate::core::protocol::WorkerReport {
+                            graph_id: assignment.graph_id.clone(),
+                            node_id: assignment.node_id.clone(),
+                            task_id: TaskId(task.id.clone()),
+                            worker_id: WorkerId(self.id.0.clone()),
+                            role: assignment.role.clone(),
+                            content: parsed.content,
+                            role_output: parsed.role_output,
+                            evidence: parsed.evidence,
+                            risks: parsed.risks,
+                            open_questions: parsed.open_questions,
+                            status: crate::core::protocol::WorkerReportStatus::Completed,
+                        },
+                    }
                 })
                 .unwrap_or_else(|| Payload::WorkerReportFinished {
                     worker_id: WorkerId(self.id.0.clone()),
@@ -325,6 +334,40 @@ impl Worker {
     }
     fn build_cognition_context(&self, task: &Task) -> Context {
         build_context(self.id.clone(), self.phase, &self.memory, &self.role, task)
+    }
+
+    async fn execute_requested_skills(&mut self, task: &Task, output: &str) {
+        let requests = parse_skill_requests(output);
+        if requests.is_empty() {
+            return;
+        }
+
+        let Some(executor) = self.skill_executor.clone() else {
+            self.memory
+                .set_state("last_skill_results", "[]".to_string());
+            self.memory
+                .push_progress("skill requests skipped: executor unavailable");
+            return;
+        };
+
+        let mut results = Vec::new();
+        for (index, request) in requests.into_iter().enumerate() {
+            let request_id = format!("{}-skill-{}", task.id, index + 1);
+            let context = build_skill_context(&self.id, &self.role, task, &request, &request_id);
+            let runtime_request = SkillRequest::new(request_id, request.skill_id, request.input)
+                .with_context(context);
+            let result = executor.execute(runtime_request).await;
+            self.memory.push_progress(format!(
+                "skill {} completed with {:?}",
+                result.skill_id.as_str(),
+                result.status
+            ));
+            results.push(result);
+        }
+
+        if let Ok(serialized) = serde_json::to_string(&results) {
+            self.memory.set_state("last_skill_results", serialized);
+        }
     }
 }
 
@@ -489,6 +532,190 @@ fn parse_worker_role_output(output: &str) -> ParsedWorkerRoleOutput {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct ParsedSkillRequest {
+    skill_id: String,
+    input: serde_json::Value,
+    reason: Option<String>,
+}
+
+fn parse_skill_requests(output: &str) -> Vec<ParsedSkillRequest> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(output.trim()) else {
+        return Vec::new();
+    };
+    value
+        .get("skill_requests")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(parse_skill_request)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_skill_request(value: &serde_json::Value) -> Option<ParsedSkillRequest> {
+    let skill_id = value
+        .get("skill_id")
+        .or_else(|| value.get("id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let input = value
+        .get("input")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    let reason = string_field(value, "reason");
+
+    Some(ParsedSkillRequest {
+        skill_id,
+        input,
+        reason,
+    })
+}
+
+fn build_skill_context(
+    worker_id: &AgentId,
+    role: &RoleProfile,
+    task: &Task,
+    request: &ParsedSkillRequest,
+    request_id: &str,
+) -> SkillContext {
+    let mut context = SkillContext::new()
+        .with_invocation_id(request_id.to_string())
+        .with_agent_id(worker_id.0.clone())
+        .with_metadata("task_id", serde_json::json!(task.id))
+        .with_metadata("task_description", serde_json::json!(task.description))
+        .with_metadata("role_id", serde_json::json!(role.id.0))
+        .with_metadata("role_name", serde_json::json!(role.name))
+        .with_metadata("role_runtime", serde_json::json!(role.runtime_role));
+    if let Some(session_id) = &task.context.session_id {
+        context = context.with_session_id(session_id.0.clone());
+    }
+    if let Some(reason) = &request.reason {
+        context = context.with_metadata("request_reason", serde_json::json!(reason));
+    }
+    if let Some(assignment) = &task.assignment {
+        context = context
+            .with_metadata("graph_id", serde_json::json!(assignment.graph_id.0))
+            .with_metadata("node_id", serde_json::json!(assignment.node_id.0))
+            .with_metadata("attempt", serde_json::json!(assignment.attempt));
+    }
+    context
+}
+
+fn merge_skill_results(
+    mut parsed: ParsedWorkerRoleOutput,
+    results: &[SkillExecutionResult],
+) -> ParsedWorkerRoleOutput {
+    if results.is_empty() {
+        return parsed;
+    }
+
+    let role_output = parsed
+        .role_output
+        .get_or_insert_with(crate::core::protocol::RoleWorkOutput::default);
+
+    for result in results {
+        match result.status {
+            SkillExecutionStatus::Success => {
+                let evidence = format_success_skill_evidence(result);
+                push_unique(&mut parsed.evidence, evidence.clone());
+                push_unique(&mut role_output.evidence, evidence);
+            }
+            SkillExecutionStatus::Deferred | SkillExecutionStatus::PendingApproval => {
+                let risk = format_incomplete_skill_risk(result);
+                let question = format_incomplete_skill_question(result);
+                push_unique(&mut parsed.risks, risk.clone());
+                push_unique(&mut parsed.open_questions, question.clone());
+                push_unique(&mut role_output.risks, risk);
+                push_unique(&mut role_output.open_questions, question);
+            }
+            SkillExecutionStatus::NotFound
+            | SkillExecutionStatus::ValidationError
+            | SkillExecutionStatus::Failed => {
+                let risk = format_failed_skill_risk(result);
+                push_unique(&mut parsed.risks, risk.clone());
+                push_unique(&mut parsed.open_questions, risk.clone());
+                push_unique(&mut role_output.risks, risk.clone());
+                push_unique(&mut role_output.open_questions, risk);
+            }
+        }
+    }
+
+    parsed.content = parsed
+        .role_output
+        .as_ref()
+        .map(format_role_work_output_content)
+        .filter(|content| !content.trim().is_empty())
+        .unwrap_or(parsed.content);
+    parsed
+}
+
+fn format_success_skill_evidence(result: &SkillExecutionResult) -> String {
+    let summary = result
+        .summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|summary| !summary.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| result.output.as_ref().map(compact_json_preview))
+        .unwrap_or_else(|| "completed".to_string());
+    format!(
+        "skill:{} status=success summary={}",
+        result.skill_id.as_str(),
+        summary
+    )
+}
+
+fn format_incomplete_skill_risk(result: &SkillExecutionResult) -> String {
+    format!(
+        "skill:{} status={:?} reason={}",
+        result.skill_id.as_str(),
+        result.status,
+        result
+            .error
+            .as_deref()
+            .or(result.summary.as_deref())
+            .unwrap_or("runtime adapter required")
+    )
+}
+
+fn format_incomplete_skill_question(result: &SkillExecutionResult) -> String {
+    format!(
+        "skill:{} 尚未产出可用结果，需要补齐适配器、审批或外部执行后再判断。",
+        result.skill_id.as_str()
+    )
+}
+
+fn format_failed_skill_risk(result: &SkillExecutionResult) -> String {
+    format!(
+        "skill:{} status={:?} error={}",
+        result.skill_id.as_str(),
+        result.status,
+        result.error.as_deref().unwrap_or("unknown error")
+    )
+}
+
+fn compact_json_preview(value: &serde_json::Value) -> String {
+    let mut text = value.to_string();
+    const MAX_LEN: usize = 240;
+    if text.chars().count() > MAX_LEN {
+        text = text.chars().take(MAX_LEN).collect::<String>();
+        text.push_str("...");
+    }
+    text
+}
+
+fn push_unique(items: &mut Vec<String>, value: String) {
+    if value.trim().is_empty() || items.iter().any(|item| item == &value) {
+        return;
+    }
+    items.push(value);
+}
+
 fn parse_role_work_output(
     value: &serde_json::Value,
 ) -> Option<crate::core::protocol::RoleWorkOutput> {
@@ -639,7 +866,8 @@ fn next_message_id() -> MessageId {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_worker_role_output;
+    use super::{merge_skill_results, parse_skill_requests, parse_worker_role_output};
+    use crate::skills::{SkillExecutionResult, SkillExecutionStatus, SkillId};
 
     #[test]
     fn parses_structured_role_work_output() {
@@ -679,5 +907,106 @@ mod tests {
         assert_eq!(role_output.summary, "这是旧格式角色产物");
         assert_eq!(role_output.evidence, vec!["legacy evidence"]);
         assert_eq!(parsed.content, "这是旧格式角色产物");
+    }
+
+    #[test]
+    fn parses_skill_requests_from_worker_json() {
+        let requests = parse_skill_requests(
+            r#"{
+              "decision": {"kind": "NoAction"},
+              "skill_requests": [
+                {
+                  "skill_id": "accounting_roi_calc",
+                  "input": {"investment": 1000, "revenue_generated": 1500},
+                  "reason": "需要计算ROI"
+                }
+              ],
+              "role_output": {"summary": "需要财务计算"}
+            }"#,
+        );
+
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].skill_id, "accounting_roi_calc");
+        assert_eq!(requests[0].input["investment"], 1000);
+        assert_eq!(requests[0].reason.as_deref(), Some("需要计算ROI"));
+    }
+
+    #[test]
+    fn successful_skill_results_become_report_evidence() {
+        let parsed = parse_worker_role_output(
+            r#"{
+              "decision": {"kind": "NoAction"},
+              "role_output": {
+                "summary": "标题需要评分",
+                "findings": [],
+                "recommendations": [],
+                "evidence": [],
+                "risks": [],
+                "open_questions": []
+              }
+            }"#,
+        );
+        let merged = merge_skill_results(
+            parsed,
+            &[SkillExecutionResult {
+                request_id: "req-1".to_string(),
+                skill_id: SkillId::new("web_title_seo_scorer"),
+                status: SkillExecutionStatus::Success,
+                output: None,
+                summary: Some("标题SEO评分已完成".to_string()),
+                metadata: serde_json::Map::new(),
+                error: None,
+            }],
+        );
+
+        assert!(
+            merged
+                .evidence
+                .iter()
+                .any(|item| item.contains("skill:web_title_seo_scorer status=success"))
+        );
+        assert!(
+            merged
+                .role_output
+                .expect("role output")
+                .evidence
+                .iter()
+                .any(|item| item.contains("标题SEO评分已完成"))
+        );
+    }
+
+    #[test]
+    fn deferred_skill_results_become_risks_and_questions() {
+        let parsed = parse_worker_role_output(
+            r#"{
+              "decision": {"kind": "NoAction"},
+              "role_output": {"summary": "需要搜索验证"}
+            }"#,
+        );
+        let merged = merge_skill_results(
+            parsed,
+            &[SkillExecutionResult {
+                request_id: "req-1".to_string(),
+                skill_id: SkillId::new("search_trends"),
+                status: SkillExecutionStatus::Deferred,
+                output: None,
+                summary: Some("搜索技能骨架已返回".to_string()),
+                metadata: serde_json::Map::new(),
+                error: None,
+            }],
+        );
+
+        assert!(
+            merged
+                .risks
+                .iter()
+                .any(|item| item.contains("skill:search_trends status=Deferred"))
+        );
+        assert!(
+            merged
+                .open_questions
+                .iter()
+                .any(|item| item.contains("尚未产出可用结果"))
+        );
     }
 }

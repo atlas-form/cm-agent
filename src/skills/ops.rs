@@ -568,9 +568,10 @@ fn smart_pricing(input: &Value) -> Value {
             "竞争定位": price_position(p, avg_comp),
         });
         if let Some(sp) = stock_pressure_price
-            && (round2(p) - sp).abs() < 0.01 {
-                entry["标签"] = json!(format!("库存压力价（{}天库存）", stock_days.round()));
-            }
+            && (round2(p) - sp).abs() < 0.01
+        {
+            entry["标签"] = json!(format!("库存压力价（{}天库存）", stock_days.round()));
+        }
         if monthly_profit > best_profit {
             best_profit = monthly_profit;
             best_price = round2(p);

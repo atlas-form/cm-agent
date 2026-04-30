@@ -405,13 +405,15 @@ fn budget_plan(input: &Value) -> Value {
     let target_gmv = num(input, "target_gmv", 500_000.0).max(0.0);
     let target_margin = num(input, "target_margin", 15.0).max(0.0);
     let target_profit = round2(target_gmv * target_margin / 100.0);
-    let items = [("采购成本", 0.40),
+    let items = [
+        ("采购成本", 0.40),
         ("物流费用", 0.08),
         ("平台佣金", 0.05),
         ("广告投放", 0.12),
         ("人力成本", 0.10),
         ("包装耗材", 0.03),
-        ("其他费用", 0.02)];
+        ("其他费用", 0.02),
+    ];
     let budget_items: Vec<_> = items
         .iter()
         .map(|(name, ratio)| {
@@ -954,12 +956,14 @@ fn gmv_waterfall(input: &Value) -> Value {
         ),
     ];
 
-    let mut deductions = [("退款", step2_refund),
+    let mut deductions = [
+        ("退款", step2_refund),
         ("商品成本", step4_cogs),
         ("物流", step6_logistics),
         ("平台佣金", step7_platform_fee),
         ("广告", step8_ad),
-        ("固定成本", step10_fixed)];
+        ("固定成本", step10_fixed),
+    ];
     deductions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let top_leak = deductions[0];
     let net_margin = pct(step13_net_profit, step1_gmv);

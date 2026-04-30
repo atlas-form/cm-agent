@@ -91,7 +91,6 @@ pub enum SkillExecutionMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillAdapterKind {
-    PythonWorker,
     Search,
     Llm,
     Db,
@@ -243,6 +242,14 @@ impl LocalSkillExecutor {
 #[async_trait]
 impl SkillExecutor for LocalSkillExecutor {
     async fn execute(&self, request: SkillRequest) -> SkillExecutionResult {
+        if let Err(message) = validate_request_envelope(&request) {
+            return SkillExecutionResult::error(
+                &request,
+                SkillExecutionStatus::ValidationError,
+                message,
+            );
+        }
+
         let Some(spec) = self.registry.get(request.skill_id.clone()) else {
             return SkillExecutionResult::error(
                 &request,
@@ -299,6 +306,16 @@ impl SkillExecutor for SkillExecutorSet {
     async fn execute(&self, request: SkillRequest) -> SkillExecutionResult {
         self.local.execute(request).await
     }
+}
+
+fn validate_request_envelope(request: &SkillRequest) -> Result<(), &'static str> {
+    if request.request_id.trim().is_empty() {
+        return Err("request_id is required");
+    }
+    if request.skill_id.as_str().trim().is_empty() {
+        return Err("skill_id is required");
+    }
+    Ok(())
 }
 
 fn validate_request(spec: &SkillSpec, input: &Value) -> Result<(), SkillError> {
@@ -674,6 +691,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn executor_runs_representative_native_categories() {
+        let executor = SkillExecutorSet::staged().expect("executor should load");
+        let cases = [
+            (
+                "accounting_cost_calc",
+                json!({"purchase_cost": 20.0, "selling_price": 49.0}),
+            ),
+            ("data_funnel_analysis", json!({})),
+            ("service_dsr_improvement", json!({})),
+            (
+                "creative_title_ctr_scorer",
+                json!({"title": "春夏新款轻便通勤保温杯"}),
+            ),
+            (
+                "web_title_seo_scorer",
+                json!({"title": "春夏新款轻便通勤保温杯", "target_keywords": ["保温杯"]}),
+            ),
+            ("engineering_sla_monitor", json!({})),
+            (
+                "coordination_agent_handoff",
+                json!({"task_description": "分析店铺转化率下滑并给出运营动作"}),
+            ),
+        ];
+
+        for (index, (skill_id, input)) in cases.into_iter().enumerate() {
+            let result = executor
+                .execute(SkillRequest::new(
+                    format!("req-native-{index}"),
+                    skill_id,
+                    input,
+                ))
+                .await;
+            assert_eq!(
+                result.status,
+                SkillExecutionStatus::Success,
+                "{skill_id} failed: {:?}",
+                result.error
+            );
+            assert_eq!(
+                result.metadata.get("execution_mode"),
+                Some(&json!(SkillExecutionMode::Native)),
+                "{skill_id} used unexpected execution mode"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn executor_validates_required_input() {
         let executor = SkillExecutorSet::staged().expect("executor should load");
         let result = executor
@@ -686,6 +750,42 @@ mod tests {
 
         assert_eq!(result.status, SkillExecutionStatus::ValidationError);
         assert!(result.error.unwrap_or_default().contains("cost"));
+    }
+
+    #[tokio::test]
+    async fn executor_validates_request_envelope() {
+        let executor = SkillExecutorSet::staged().expect("executor should load");
+        let missing_request_id = executor
+            .execute(SkillRequest::new(
+                "",
+                "ops_pricing_strategy",
+                json!({"cost": 10.0}),
+            ))
+            .await;
+        assert_eq!(
+            missing_request_id.status,
+            SkillExecutionStatus::ValidationError
+        );
+        assert!(
+            missing_request_id
+                .error
+                .unwrap_or_default()
+                .contains("request_id")
+        );
+
+        let missing_skill_id = executor
+            .execute(SkillRequest::new("req-empty-skill", "", json!({})))
+            .await;
+        assert_eq!(
+            missing_skill_id.status,
+            SkillExecutionStatus::ValidationError
+        );
+        assert!(
+            missing_skill_id
+                .error
+                .unwrap_or_default()
+                .contains("skill_id")
+        );
     }
 
     #[tokio::test]

@@ -357,9 +357,10 @@ impl Cognition for OllamaRoleWorkerCognition {
             truncate_for_log(&raw, 1200)
         );
         if let Some(parsed) = parse_role_json(&raw)
-            && has_role_output_content(&parsed) {
-                return CognitionResult::Success(parsed);
-            }
+            && has_role_output_content(&parsed)
+        {
+            return CognitionResult::Success(parsed);
+        }
 
         let repair_system = r#"你必须把上一条 worker 输出修正为合法 JSON。
 只能返回 JSON，不能返回 Markdown。
