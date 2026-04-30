@@ -1,7 +1,7 @@
 # Rust Skills
 
-This directory is the staging area for Rust ports of the old Python skills.
+本目录是旧 Python skill 的 Rust 迁移与运行时实现区域。
 
-Current rule: define skill specs and local executors here, but do not wire them into the runtime registry, role catalog, tool routing, or LLM tool-call loop yet.
+当前规则：这里可以定义 skill spec 和本地 executor，但在第二阶段完成前，不把它们接入 runtime registry、role catalog、tool routing 或 LLM tool-call loop。
 
-See `stage-plans/skill/SKILL_MIGRATION_CHECKLIST.md` for the migration inventory and status.
+下一步 skill runtime 计划见 `stage-plans/skill/SKILL_PHASE_2_RUNTIME_PLAN.md`。

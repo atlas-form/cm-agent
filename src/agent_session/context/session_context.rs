@@ -1,5 +1,6 @@
 use crate::{
     agent::commander::CommanderSessionContext,
+    agent_session::{MemoryBundle, MemoryRecord},
     context::{EndpointDirectory, SessionBlackboard, SessionExtensions, WorkerCatalog},
     core::{
         messaging::MessageTx,
@@ -44,5 +45,11 @@ impl CommanderSessionContext for SessionContext {
 
     fn list_worker_profiles(&self) -> Vec<WorkerProfile> {
         self.worker_catalog.list()
+    }
+
+    fn memory_records(&self) -> Vec<MemoryRecord> {
+        self.extensions()
+            .with::<MemoryBundle, _>(|bundle| bundle.records.clone())
+            .unwrap_or_default()
     }
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::{
-    SessionContext,
+    MemoryBundle, SessionContext,
     agent::{
         commander::{Commander, CommanderChannels, CommanderOptions},
         worker::Worker,
@@ -52,6 +52,7 @@ pub struct SessionRuntimeInput {
     pub session_id: SessionId,
     pub context: MessageContext,
     pub task_description: String,
+    pub memory_bundle: MemoryBundle,
     pub commander_cognition: Box<dyn Cognition + Send>,
     pub workers: Vec<SessionRuntimeWorkerInput>,
     pub config: SessionRuntimeConfig,
@@ -81,6 +82,7 @@ pub struct SessionRuntime {
 impl SessionRuntime {
     pub fn start(input: SessionRuntimeInput) -> Result<Self> {
         let session_context = Arc::new(SessionContext::new());
+        session_context.extensions().insert(input.memory_bundle);
         let (commander_tx, commander_rx) = tokio_mpsc::unbounded_channel::<Message>();
         let (response_tx, response_rx) = tokio_mpsc::unbounded_channel::<Message>();
 
@@ -166,6 +168,23 @@ impl SessionRuntime {
     pub async fn run_until_complete(&mut self) -> Result<SessionResult> {
         self.emit_event(SessionEvent::Started {
             session_id: self.session_id.clone(),
+        })
+        .await;
+
+        let memory_kinds = self
+            .session_context
+            .extensions()
+            .with::<MemoryBundle, _>(MemoryBundle::kind_names)
+            .unwrap_or_default();
+        let memory_count = self
+            .session_context
+            .extensions()
+            .with::<MemoryBundle, _>(|bundle| bundle.records.len())
+            .unwrap_or_default();
+        self.emit_event(SessionEvent::MemoryLoaded {
+            session_id: self.session_id.clone(),
+            count: memory_count,
+            kinds: memory_kinds,
         })
         .await;
 

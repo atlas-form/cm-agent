@@ -10,6 +10,15 @@ pub enum SessionEvent {
     Started {
         session_id: SessionId,
     },
+    MemoryLoaded {
+        session_id: SessionId,
+        count: usize,
+        kinds: Vec<String>,
+    },
+    MemoryPersisted {
+        session_id: SessionId,
+        count: usize,
+    },
     CommanderThinking {
         session_id: SessionId,
     },
@@ -114,6 +123,8 @@ impl SessionEvent {
     pub const fn event_name(&self) -> &'static str {
         match self {
             Self::Started { .. } => "started",
+            Self::MemoryLoaded { .. } => "memory_loaded",
+            Self::MemoryPersisted { .. } => "memory_persisted",
             Self::CommanderThinking { .. } => "commander_thinking",
             Self::WorkerStarted { .. } => "worker_started",
             Self::LlmChunk { .. } => "llm_chunk",

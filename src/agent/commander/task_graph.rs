@@ -1457,6 +1457,72 @@ mod tests {
     }
 
     #[test]
+    fn evaluator_allows_web_seo_terms_without_claiming_external_search() {
+        let role_output = RoleWorkOutput {
+            summary: "SEO 页面应围绕关键词集群和搜索结果展示结构优化。".to_string(),
+            findings: vec!["自然流量增长依赖页面主题集群和标题匹配。".to_string()],
+            recommendations: vec![
+                "建立核心词、长尾词和 FAQ 页面的关键词集群。".to_string(),
+                "优化标题、描述和结构化数据以改善搜索结果展示。".to_string(),
+            ],
+            evidence: vec!["原始任务".to_string()],
+            risks: vec!["未验证搜索量和收录状态时不能承诺排名结果。".to_string()],
+            open_questions: Vec::new(),
+        };
+        let report = WorkerReport {
+            graph_id: TaskGraphId("graph-web-seo".to_string()),
+            node_id: TaskNodeId("web".to_string()),
+            task_id: TaskId("task-web-seo".to_string()),
+            worker_id: WorkerId("worker.web".to_string()),
+            role: "web".to_string(),
+            content: role_output.summary.clone(),
+            role_output: Some(role_output),
+            evidence: Vec::new(),
+            risks: Vec::new(),
+            open_questions: Vec::new(),
+            status: WorkerReportStatus::Completed,
+        };
+
+        let evaluation = evaluate_report(&report, None, &HashMap::new());
+
+        assert!(evaluation.passed, "{:?}", evaluation.reasons);
+    }
+
+    #[test]
+    fn evaluator_rejects_claimed_external_search_results() {
+        let role_output = RoleWorkOutput {
+            summary: "已检索到实时搜索结果显示该关键词排名第一。".to_string(),
+            findings: vec!["搜索结果显示当前页面排名第一。".to_string()],
+            recommendations: vec!["继续扩大该关键词页面。".to_string()],
+            evidence: vec!["原始任务".to_string()],
+            risks: vec!["需要验证数据来源。".to_string()],
+            open_questions: Vec::new(),
+        };
+        let report = WorkerReport {
+            graph_id: TaskGraphId("graph-web-fabrication".to_string()),
+            node_id: TaskNodeId("web".to_string()),
+            task_id: TaskId("task-web-fabrication".to_string()),
+            worker_id: WorkerId("worker.web".to_string()),
+            role: "web".to_string(),
+            content: role_output.summary.clone(),
+            role_output: Some(role_output),
+            evidence: Vec::new(),
+            risks: Vec::new(),
+            open_questions: Vec::new(),
+            status: WorkerReportStatus::Completed,
+        };
+
+        let evaluation = evaluate_report(&report, None, &HashMap::new());
+
+        assert!(!evaluation.passed);
+        assert!(
+            evaluation
+                .reasons
+                .contains(&"quality fabrication: claims unsupported external evidence".to_string())
+        );
+    }
+
+    #[test]
     fn planner_can_make_ops_depend_on_design_and_accounting() {
         let graph = plan_task_graph(
             &TaskId("task-9".to_string()),

@@ -32,10 +32,11 @@ pub(crate) use action::{
 };
 pub(crate) use agent_session::{
     AgentSession, AgentSessionConfig, AgentSessionScope, CognitionFactory, EndpointDirectory,
-    MemoryScope, MemoryStore, NoopMemoryStore, RoleCognitionFactory, SessionBlackboard,
-    SessionContext, SessionEventRx, SessionEventTx, SessionExtensions, SessionResult,
-    SessionRuntime, SessionRuntimeConfig, SessionRuntimeInput, SessionSnapshot, WorkerCatalog,
-    context,
+    InMemoryMemoryStore, MemoryBudget, MemoryBundle, MemoryId, MemoryKind, MemoryQuery,
+    MemoryRecord, MemoryScope, MemorySource, MemoryStore, NoopMemoryStore, RoleCognitionFactory,
+    SessionBlackboard, SessionContext, SessionEventRx, SessionEventTx, SessionExtensions,
+    SessionResult, SessionRuntime, SessionRuntimeConfig, SessionRuntimeInput, SessionSnapshot,
+    WorkerCatalog, context,
 };
 pub(crate) use cognition::{
     Cognition, CognitionDecoder, CognitionEngine, CognitionFailure, CognitionInput,

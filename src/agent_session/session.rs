@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    MemoryScope, MemoryStore, SessionEventRx, SessionResult, SessionRuntime, SessionRuntimeConfig,
-    SessionRuntimeInput, SessionSnapshot,
+    MemoryQuery, MemoryScope, MemoryStore, SessionEventRx, SessionResult, SessionRuntime,
+    SessionRuntimeConfig, SessionRuntimeInput, SessionSnapshot,
     agent_error::Result,
     cognition::Cognition,
     core::protocol::{AgentId, MessageContext, SessionEvent, SessionId, UserId, WorkspaceId},
@@ -78,6 +78,7 @@ impl AgentSession {
         input: impl Into<String>,
         event_tx: Option<tokio::sync::mpsc::Sender<crate::core::protocol::SessionEvent>>,
     ) -> Result<SessionResult> {
+        let event_tx_for_persist = event_tx.clone();
         let commander_cognition = (self.config.commander_cognition)()?;
         let workers = self
             .config
@@ -92,11 +93,18 @@ impl AgentSession {
             })
             .collect::<Result<Vec<_>>>()?;
         let context = self.message_context();
+        let mut memory_scope = self.memory_scope(None);
+        memory_scope.session_id = None;
+        let memory_bundle = self
+            .config
+            .memory_store
+            .load_bundle(MemoryQuery::scoped(memory_scope));
 
         let mut runtime = SessionRuntime::start(SessionRuntimeInput {
             session_id: self.scope.session_id.clone(),
             context,
             task_description: input.into(),
+            memory_bundle,
             commander_cognition,
             workers,
             config: self.config.runtime.clone(),
@@ -104,8 +112,20 @@ impl AgentSession {
         })?;
 
         let result = runtime.run_until_complete().await;
+        let blackboard = runtime.session_context().blackboard().snapshot();
         runtime.shutdown().await;
-        self.persist_if_ok(&result);
+        let persisted_count = self.persist_if_ok(&result, blackboard);
+        if persisted_count > 0
+            && let Some(event_tx) = event_tx_for_persist
+            && let Ok(result) = &result
+        {
+            let _ = event_tx
+                .send(SessionEvent::MemoryPersisted {
+                    session_id: result.session_id.clone(),
+                    count: persisted_count,
+                })
+                .await;
+        }
         result
     }
 
@@ -123,20 +143,31 @@ impl AgentSession {
         }
     }
 
-    fn persist_if_ok(&self, result: &Result<SessionResult>) {
+    fn memory_scope(&self, session_id: Option<SessionId>) -> MemoryScope {
+        MemoryScope {
+            user_id: self.scope.user_id.clone(),
+            workspace_id: self.scope.workspace_id.clone(),
+            agent_id: Some(self.scope.agent_id.clone()),
+            session_id: Some(session_id.unwrap_or_else(|| self.scope.session_id.clone())),
+            task_id: None,
+        }
+    }
+
+    fn persist_if_ok(
+        &self,
+        result: &Result<SessionResult>,
+        blackboard: std::collections::HashMap<String, String>,
+    ) -> usize {
         if let Ok(result) = result {
-            self.config.memory_store.persist_session(
-                &MemoryScope {
-                    user_id: self.scope.user_id.clone(),
-                    workspace_id: self.scope.workspace_id.clone(),
-                    agent_id: Some(self.scope.agent_id.clone()),
-                    session_id: Some(result.session_id.clone()),
-                    task_id: None,
-                },
+            return self.config.memory_store.persist_session(
+                &self.memory_scope(Some(result.session_id.clone())),
                 SessionSnapshot {
                     summary: result.output.clone(),
+                    final_output: result.output.clone(),
+                    blackboard: blackboard.into_iter().collect::<BTreeMap<_, _>>(),
                 },
             );
         }
+        0
     }
 }

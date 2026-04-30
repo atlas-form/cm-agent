@@ -7,6 +7,7 @@ use super::{
     TaskGraphRuntime, TaskMemory, decision_intent_from_json, plan_task_graph,
 };
 use crate::{
+    agent_session::MemoryRecord,
     cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind},
     core::{
         messaging::{MessageRx, MessageTx},
@@ -25,6 +26,10 @@ pub trait CommanderSessionContext: Send + Sync {
     fn get_worker_tx(&self, worker_id: &WorkerId) -> Option<MessageTx>;
 
     fn list_worker_profiles(&self) -> Vec<WorkerProfile>;
+
+    fn memory_records(&self) -> Vec<MemoryRecord> {
+        Vec::new()
+    }
 }
 
 pub struct CommanderChannels {
@@ -943,6 +948,20 @@ impl Commander {
             content: profile.summary_line(),
             reliability: 1.0,
         }));
+        for (index, record) in self.session_context.memory_records().iter().enumerate() {
+            metadata.insert(
+                format!("memory.record.{index}.kind"),
+                record.kind.as_str().to_string(),
+            );
+            if let Some(key) = &record.key {
+                metadata.insert(format!("memory.record.{index}.key"), key.clone());
+            }
+            facts.push(Fact {
+                source: format!("memory.{}", record.kind.as_str()),
+                content: record.content.clone(),
+                reliability: f64::from(record.confidence),
+            });
+        }
 
         CognitionInput {
             intent,

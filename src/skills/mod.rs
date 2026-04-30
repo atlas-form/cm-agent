@@ -5,11 +5,17 @@ pub mod data;
 pub mod design;
 pub mod engineering;
 pub mod ops;
+pub mod runtime;
 pub mod search;
 pub mod service;
 pub mod spec;
 pub mod web;
 
+pub use runtime::{
+    LocalSkillExecutor, SkillAdapterKind, SkillExecutionMode, SkillExecutionResult,
+    SkillExecutionStatus, SkillExecutor, SkillExecutorSet, SkillId, SkillRegistry, SkillRequest,
+    SkillRiskLevel, SkillRuntimeError,
+};
 pub use spec::{
     Skill, SkillCategory, SkillContext, SkillError, SkillInputField, SkillOutcome, SkillPriority,
     SkillResult, SkillSpec, bool_param, f64_param, i64_param, object_params, optional_bool_param,
