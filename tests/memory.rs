@@ -10,7 +10,8 @@ use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
     CognitionResult, FileMemoryStore, FileMemoryStoreError, InMemoryMemoryStore, MemoryBudget,
     MemoryCompactionPolicy, MemoryId, MemoryKind, MemoryQuery, MemoryRecord, MemoryScope,
-    MemorySource, MemoryStore, SessionEvent, SessionId, SessionSnapshot, UserId,
+    MemorySource, MemoryStore, RoleMemorySummary, SessionEvent, SessionId, SessionSnapshot,
+    TaskGraphId, TaskGraphMemorySummary, TaskNodeId, UserId, WorkerId, WorkerReportStatus,
 };
 use serde_json::json;
 
@@ -507,6 +508,7 @@ fn file_memory_store_persists_session_snapshot() {
                 summary: "本次 session 形成了文件持久化 memory".to_string(),
                 final_output: "final output".to_string(),
                 blackboard: [("decision".to_string(), "使用文件 store".to_string())].into(),
+                ..SessionSnapshot::default()
             },
         );
         assert_eq!(outcome.written, 2);
@@ -539,6 +541,80 @@ fn file_memory_store_reports_corrupt_file_on_open() {
     let error = FileMemoryStore::open(&path).expect_err("corrupt file should fail");
 
     assert!(matches!(error, FileMemoryStoreError::Json { .. }));
+}
+
+#[test]
+fn session_snapshot_persists_role_risks_questions_and_evaluation() {
+    let store = InMemoryMemoryStore::new();
+    let scope = MemoryScope {
+        user_id: Some(UserId("snapshot-user".to_string())),
+        workspace_id: None,
+        agent_id: Some(AgentId("snapshot-agent".to_string())),
+        session_id: Some(SessionId("snapshot-session".to_string())),
+        task_id: None,
+    };
+    let role_summary = RoleMemorySummary {
+        graph_id: TaskGraphId("graph-snapshot".to_string()),
+        node_id: TaskNodeId("node-data".to_string()),
+        worker_id: WorkerId("worker.data".to_string()),
+        role: "data".to_string(),
+        summary: "数据角色完成归因口径诊断".to_string(),
+        findings: vec!["漏斗指标需要拆解".to_string()],
+        recommendations: vec!["统一渠道口径".to_string()],
+        evidence: vec!["原始任务".to_string()],
+        risks: vec!["口径不一致会导致误判".to_string()],
+        open_questions: vec!["需要确认 GMV 统计口径".to_string()],
+        status: WorkerReportStatus::Completed,
+    };
+    let outcome = MemoryStore::persist_session(
+        &store,
+        &scope,
+        SessionSnapshot {
+            summary: "结构化 snapshot 已完成".to_string(),
+            final_output: "final".to_string(),
+            task_graphs: vec![TaskGraphMemorySummary {
+                graph_id: TaskGraphId("graph-snapshot".to_string()),
+                root_task: "分析数据指标归因".to_string(),
+                roles: vec!["data".to_string()],
+                role_summaries: vec![role_summary.clone()],
+                risks: role_summary.risks.clone(),
+                open_questions: role_summary.open_questions.clone(),
+                evaluation_summary: Some("node-data passed=true score=1.00".to_string()),
+            }],
+            role_summaries: vec![role_summary],
+            risks: vec!["口径不一致会导致误判".to_string()],
+            open_questions: vec!["需要确认 GMV 统计口径".to_string()],
+            evaluation_summary: Some("node-data passed=true score=1.00".to_string()),
+            ..SessionSnapshot::default()
+        },
+    );
+
+    let records = store.records();
+    assert!(outcome.written >= 5);
+    assert!(
+        records
+            .iter()
+            .any(|record| record.kind == MemoryKind::CrossRoleContext
+                && record.content.contains("数据角色完成归因口径诊断"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.tags.contains(&"risk".to_string())
+                && record.content.contains("口径不一致"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.tags.contains(&"open_question".to_string())
+                && record.content.contains("GMV"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.tags.contains(&"evaluation".to_string())
+                && record.content.contains("passed=true"))
+    );
 }
 
 #[tokio::test]

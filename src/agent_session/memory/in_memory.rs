@@ -131,6 +131,109 @@ impl MemoryStore for InMemoryMemoryStore {
                 updated_at: SystemTime::now(),
             }));
         }
+
+        for task_graph in snapshot.task_graphs {
+            if !task_graph.root_task.trim().is_empty() {
+                outcome.add(self.upsert_record(MemoryRecord {
+                    id: MemoryId(next_memory_id()),
+                    scope: scope.clone(),
+                    kind: MemoryKind::CrossRoleContext,
+                    key: Some(format!("task_graph:{}", task_graph.graph_id.0)),
+                    content: format_task_graph_memory(&task_graph),
+                    confidence: 0.85,
+                    tags: vec!["task_graph".to_string(), "session".to_string()],
+                    source: MemorySource::session_result(),
+                    created_at: SystemTime::now(),
+                    updated_at: SystemTime::now(),
+                }));
+            }
+        }
+
+        for role_summary in snapshot.role_summaries {
+            if role_summary.summary.trim().is_empty()
+                && role_summary.findings.is_empty()
+                && role_summary.recommendations.is_empty()
+            {
+                continue;
+            }
+            outcome.add(self.upsert_record(MemoryRecord {
+                id: MemoryId(next_memory_id()),
+                scope: scope.clone(),
+                kind: MemoryKind::CrossRoleContext,
+                key: Some(format!(
+                    "role:{}:{}",
+                    role_summary.graph_id.0, role_summary.node_id.0
+                )),
+                content: format_role_memory(&role_summary),
+                confidence: 0.85,
+                tags: vec!["role_summary".to_string(), role_summary.role.clone()],
+                source: MemorySource::session_result(),
+                created_at: SystemTime::now(),
+                updated_at: SystemTime::now(),
+            }));
+        }
+
+        if !snapshot.risks.is_empty() {
+            outcome.add(
+                self.upsert_record(MemoryRecord {
+                    id: MemoryId(next_memory_id()),
+                    scope: scope.clone(),
+                    kind: MemoryKind::ConversationFact,
+                    key: scope
+                        .session_id
+                        .as_ref()
+                        .map(|id| format!("session:{}:risks", id.0)),
+                    content: format_list("Risks", &snapshot.risks),
+                    confidence: 0.8,
+                    tags: vec!["risk".to_string(), "session".to_string()],
+                    source: MemorySource::session_result(),
+                    created_at: SystemTime::now(),
+                    updated_at: SystemTime::now(),
+                }),
+            );
+        }
+
+        if !snapshot.open_questions.is_empty() {
+            outcome.add(
+                self.upsert_record(MemoryRecord {
+                    id: MemoryId(next_memory_id()),
+                    scope: scope.clone(),
+                    kind: MemoryKind::ConversationFact,
+                    key: scope
+                        .session_id
+                        .as_ref()
+                        .map(|id| format!("session:{}:open_questions", id.0)),
+                    content: format_list("Open questions", &snapshot.open_questions),
+                    confidence: 0.8,
+                    tags: vec!["open_question".to_string(), "session".to_string()],
+                    source: MemorySource::session_result(),
+                    created_at: SystemTime::now(),
+                    updated_at: SystemTime::now(),
+                }),
+            );
+        }
+
+        if let Some(evaluation_summary) = snapshot.evaluation_summary
+            && !evaluation_summary.trim().is_empty()
+        {
+            outcome.add(
+                self.upsert_record(MemoryRecord {
+                    id: MemoryId(next_memory_id()),
+                    scope: scope.clone(),
+                    kind: MemoryKind::ConversationFact,
+                    key: scope
+                        .session_id
+                        .as_ref()
+                        .map(|id| format!("session:{}:evaluation", id.0)),
+                    content: evaluation_summary,
+                    confidence: 0.75,
+                    tags: vec!["evaluation".to_string(), "session".to_string()],
+                    source: MemorySource::session_result(),
+                    created_at: SystemTime::now(),
+                    updated_at: SystemTime::now(),
+                }),
+            );
+        }
         outcome
     }
 
@@ -202,4 +305,58 @@ fn next_memory_id() -> String {
         .as_millis();
     let sequence = NEXT_MEMORY_ID.fetch_add(1, Ordering::Relaxed);
     format!("mem-{millis}-{sequence}")
+}
+
+fn format_task_graph_memory(summary: &super::TaskGraphMemorySummary) -> String {
+    let mut lines = vec![
+        format!("Task graph: {}", summary.graph_id.0),
+        format!("Root task: {}", summary.root_task),
+        format!("Roles: {}", summary.roles.join(", ")),
+    ];
+    if !summary.risks.is_empty() {
+        lines.push(format_list("Risks", &summary.risks));
+    }
+    if !summary.open_questions.is_empty() {
+        lines.push(format_list("Open questions", &summary.open_questions));
+    }
+    if let Some(evaluation) = &summary.evaluation_summary
+        && !evaluation.trim().is_empty()
+    {
+        lines.push(format!("Evaluation:\n{evaluation}"));
+    }
+    lines.join("\n")
+}
+
+fn format_role_memory(summary: &super::RoleMemorySummary) -> String {
+    let mut lines = vec![
+        format!("Role: {}", summary.role),
+        format!("Worker: {}", summary.worker_id.0),
+        format!("Summary: {}", summary.summary),
+    ];
+    if !summary.findings.is_empty() {
+        lines.push(format_list("Findings", &summary.findings));
+    }
+    if !summary.recommendations.is_empty() {
+        lines.push(format_list("Recommendations", &summary.recommendations));
+    }
+    if !summary.evidence.is_empty() {
+        lines.push(format_list("Evidence", &summary.evidence));
+    }
+    if !summary.risks.is_empty() {
+        lines.push(format_list("Risks", &summary.risks));
+    }
+    if !summary.open_questions.is_empty() {
+        lines.push(format_list("Open questions", &summary.open_questions));
+    }
+    lines.join("\n")
+}
+
+fn format_list(label: &str, items: &[String]) -> String {
+    let items = items
+        .iter()
+        .filter(|item| !item.trim().is_empty())
+        .map(|item| format!("- {}", item.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{label}:\n{items}")
 }

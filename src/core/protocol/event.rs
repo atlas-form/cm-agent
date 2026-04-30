@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::{
-    Evaluation, SessionId, TaskGraph, TaskGraphId, TaskId, TaskNodeId, WorkerId,
+    Evaluation, SessionId, TaskGraph, TaskGraphId, TaskId, TaskNodeId, WorkerId, WorkerReport,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -87,6 +87,7 @@ pub enum SessionEvent {
         graph_id: TaskGraphId,
         node_id: TaskNodeId,
         worker_id: WorkerId,
+        report: Box<WorkerReport>,
     },
     TaskNodeEvaluated {
         session_id: SessionId,

@@ -1,6 +1,6 @@
 use crate::{
     agent::commander::CommanderSessionContext,
-    agent_session::{MemoryBundle, MemoryRecord},
+    agent_session::{MemoryBundle, MemoryRecord, TaskGraphMemorySummary},
     context::{EndpointDirectory, SessionBlackboard, SessionExtensions, WorkerCatalog},
     core::{
         messaging::MessageTx,
@@ -51,5 +51,14 @@ impl CommanderSessionContext for SessionContext {
         self.extensions()
             .with::<MemoryBundle, _>(|bundle| bundle.records.clone())
             .unwrap_or_default()
+    }
+
+    fn record_task_graph_memory(&self, summary: TaskGraphMemorySummary) {
+        let mut summaries = self
+            .extensions()
+            .with::<Vec<TaskGraphMemorySummary>, _>(Clone::clone)
+            .unwrap_or_default();
+        summaries.push(summary);
+        self.extensions().insert(summaries);
     }
 }

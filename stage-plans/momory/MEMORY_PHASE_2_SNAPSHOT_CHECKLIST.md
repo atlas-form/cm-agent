@@ -13,9 +13,9 @@ Memory Phase 2: File Store + Snapshot Enrichment
 ## 状态总览
 
 ```text
-status: in_progress
+status: completed
 started: yes
-completed: no
+completed: yes
 ```
 
 ## Checklist
@@ -54,42 +54,42 @@ completed: no
 
 ### 5. Session Result Model
 
-- [ ] 盘点现有 task graph / worker report 可复用字段
-- [ ] 扩展 `SessionResult` 结构化字段
-- [ ] 保持普通 final output 路径兼容
-- [ ] 添加 `SessionResult` 结构化字段测试
+- [x] 盘点现有 task graph / worker report 可复用字段
+- [x] 扩展 `SessionResult` 结构化字段
+- [x] 保持普通 final output 路径兼容
+- [x] 添加 `SessionResult` 结构化字段测试
 
 ### 6. Session Snapshot Model
 
-- [ ] 扩展 `SessionSnapshot`
-- [ ] 增加 role summary / risks / open questions / evaluation summary 字段
-- [ ] 确认 snapshot 不包含 prompt / permission / runtime config
-- [ ] 添加 snapshot model 测试
+- [x] 扩展 `SessionSnapshot`
+- [x] 增加 role summary / risks / open questions / evaluation summary 字段
+- [x] 确认 snapshot 不包含 prompt / permission / runtime config
+- [x] 添加 snapshot model 测试
 
 ### 7. Runtime Capture
 
-- [ ] 从 task graph runtime 捕获 role contribution summary
-- [ ] 捕获 risks / open questions
-- [ ] 捕获 evaluation pass/fail summary
-- [ ] 普通非 task graph session 保持可保存
+- [x] 从 task graph runtime 捕获 role contribution summary
+- [x] 捕获 risks / open questions
+- [x] 捕获 evaluation pass/fail summary
+- [x] 普通非 task graph session 保持可保存
 
 ### 8. Persist Mapping
 
-- [ ] final output 映射为 `SessionSummary`
-- [ ] blackboard 映射为 `ConversationFact`
-- [ ] role summaries 映射为 `CrossRoleContext` 或 `WorkspaceFact`
-- [ ] risks / open questions 映射为带 tag 的 `ConversationFact`
-- [ ] evaluation summary 映射为 keyed `ConversationFact`
-- [ ] 所有 records 继续走 `upsert_record` 和 compaction
+- [x] final output 映射为 `SessionSummary`
+- [x] blackboard 映射为 `ConversationFact`
+- [x] role summaries 映射为 `CrossRoleContext` 或 `WorkspaceFact`
+- [x] risks / open questions 映射为带 tag 的 `ConversationFact`
+- [x] evaluation summary 映射为 keyed `ConversationFact`
+- [x] 所有 records 继续走 `upsert_record` 和 compaction
 
 ### 9. Safety Rules
 
-- [ ] 不保存 system prompt
-- [ ] 不保存 developer instructions
-- [ ] 不保存 role prompt
-- [ ] 不保存 permission / sandbox policy
-- [ ] 不保存 runtime config
-- [ ] 增加防泄漏测试
+- [x] 不保存 system prompt
+- [x] 不保存 developer instructions
+- [x] 不保存 role prompt
+- [x] 不保存 permission / sandbox policy
+- [x] 不保存 runtime config
+- [x] 增加防泄漏测试
 
 ### 10. Verification
 

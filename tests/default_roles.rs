@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, RoleProfile, SessionEvent, SessionId, UserId,
+    CognitionResult, InMemoryMemoryStore, MemoryKind, RoleProfile, SessionEvent, SessionId, UserId,
 };
 use serde_json::json;
 
@@ -380,6 +380,101 @@ async fn commander_dispatches_task_graph_roles_after_upstream_role() {
     assert!(result.output.contains("多智能体任务图已完成"));
     assert!(result.output.contains("数据诊断(data)"));
     assert!(result.output.contains("创意产出(creative)"));
+}
+
+#[tokio::test]
+async fn task_graph_result_carries_memory_snapshot_fields() {
+    let manager = AgentManager::new(AgentManagerConfig::new(
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
+        Arc::new(|| Ok(Box::new(NoopWorkerCognition))),
+    ));
+
+    let result = manager
+        .run_request(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-memory-snapshot".to_string()),
+            input: "帮我分析数据指标归因漏斗，并写一版直播脚本文案".to_string(),
+        })
+        .await
+        .expect("request should complete");
+
+    assert_eq!(result.task_graphs.len(), 1);
+    assert!(
+        result
+            .role_summaries
+            .iter()
+            .any(|summary| summary.role == "data" && summary.summary.contains("数据角色已完成"))
+    );
+    assert!(
+        result
+            .role_summaries
+            .iter()
+            .any(|summary| summary.role == "creative"
+                && summary.summary.contains("创意角色已形成"))
+    );
+    assert!(result.risks.iter().any(|risk| risk.contains("口径不一致")));
+    assert!(
+        result
+            .evaluation_summary
+            .as_deref()
+            .is_some_and(|summary| summary.contains("passed=true"))
+    );
+}
+
+#[tokio::test]
+async fn task_graph_memory_persists_structured_output_without_prompt_leaks() {
+    let memory_store = Arc::new(InMemoryMemoryStore::new());
+    let mut config = AgentManagerConfig::new(
+        Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
+        Arc::new(|| Ok(Box::new(NoopWorkerCognition))),
+    );
+    config.memory_store = memory_store.clone();
+    let manager = AgentManager::new(config);
+
+    manager
+        .run_request(AgentRequest {
+            user_id: Some(UserId("role-user".to_string())),
+            workspace_id: None,
+            agent_id: AgentId("role-agent".to_string()),
+            session_id: SessionId("role-session-memory-persist".to_string()),
+            input: "帮我分析数据指标归因漏斗，并写一版直播脚本文案".to_string(),
+        })
+        .await
+        .expect("request should complete");
+
+    let records = memory_store.records();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.kind == MemoryKind::CrossRoleContext
+                && record.content.contains("数据角色已完成"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.tags.contains(&"risk".to_string())
+                && record.content.contains("口径不一致"))
+    );
+
+    let joined_memory = records
+        .iter()
+        .map(|record| record.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in [
+        "system prompt",
+        "developer instructions",
+        "role prompt",
+        "sandbox policy",
+        "runtime config",
+    ] {
+        assert!(
+            !joined_memory.to_lowercase().contains(forbidden),
+            "memory should not contain {forbidden}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    agent_session::{RoleMemorySummary, TaskGraphMemorySummary},
     core::protocol::{
         Evaluation, RoleWorkOutput, TaskGraph, TaskGraphId, TaskId, TaskNode, TaskNodeId,
         WorkerAssignment, WorkerId, WorkerReport, WorkerReportStatus,
@@ -24,6 +25,7 @@ pub struct TaskGraphRuntime {
     pub states: HashMap<TaskNodeId, TaskNodeRuntimeState>,
     pub reports: HashMap<TaskNodeId, WorkerReport>,
     pub rework_instructions: HashMap<TaskNodeId, String>,
+    pub evaluations: Vec<Evaluation>,
 }
 
 impl TaskGraphRuntime {
@@ -40,6 +42,7 @@ impl TaskGraphRuntime {
             states,
             reports: HashMap::new(),
             rework_instructions: HashMap::new(),
+            evaluations: Vec::new(),
         }
     }
 
@@ -116,6 +119,7 @@ impl TaskGraphRuntime {
             .find(|node| node.id == report.node_id)
             .cloned();
         let evaluation = evaluate_report(&report, node.as_ref(), &self.reports);
+        self.evaluations.push(evaluation.clone());
         self.reports.insert(report.node_id.clone(), report.clone());
 
         let Some(node) = node else {
@@ -240,6 +244,84 @@ impl TaskGraphRuntime {
         }
 
         lines.join("\n")
+    }
+
+    pub fn memory_summary(&self) -> TaskGraphMemorySummary {
+        let role_summaries = self
+            .graph
+            .nodes
+            .iter()
+            .filter_map(|node| self.reports.get(&node.id))
+            .map(|report| {
+                let role_output = report.role_output.clone().unwrap_or_default();
+                RoleMemorySummary {
+                    graph_id: report.graph_id.clone(),
+                    node_id: report.node_id.clone(),
+                    worker_id: report.worker_id.clone(),
+                    role: report.role.clone(),
+                    summary: if role_output.summary.trim().is_empty() {
+                        report.content.clone()
+                    } else {
+                        role_output.summary
+                    },
+                    findings: role_output.findings,
+                    recommendations: role_output.recommendations,
+                    evidence: if role_output.evidence.is_empty() {
+                        report.evidence.clone()
+                    } else {
+                        role_output.evidence
+                    },
+                    risks: merge_unique(role_output.risks, report.risks.clone()),
+                    open_questions: merge_unique(
+                        role_output.open_questions,
+                        report.open_questions.clone(),
+                    ),
+                    status: report.status.clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let roles = self
+            .graph
+            .nodes
+            .iter()
+            .map(|node| node.role.clone())
+            .collect::<Vec<_>>();
+        let evaluation_summary = (!self.evaluations.is_empty()).then(|| {
+            self.evaluations
+                .iter()
+                .map(|evaluation| {
+                    format!(
+                        "{} passed={} score={:.2}: {}",
+                        evaluation.node_id.0,
+                        evaluation.passed,
+                        evaluation.score,
+                        evaluation.reasons.join("; ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+
+        TaskGraphMemorySummary {
+            graph_id: self.graph.graph_id.clone(),
+            root_task: self.graph.root_task.clone(),
+            roles,
+            risks: unique_strings(
+                role_summaries
+                    .iter()
+                    .flat_map(|summary| summary.risks.clone())
+                    .collect(),
+            ),
+            open_questions: unique_strings(
+                role_summaries
+                    .iter()
+                    .flat_map(|summary| summary.open_questions.clone())
+                    .collect(),
+            ),
+            role_summaries,
+            evaluation_summary,
+        }
     }
 
     fn skip_blocked_descendants(&mut self) {
@@ -831,6 +913,24 @@ fn extend_synthesis_items(lines: &mut Vec<String>, label: &str, items: &[String]
             .collect::<Vec<_>>()
             .join("；")
     ));
+}
+
+fn merge_unique(mut left: Vec<String>, right: Vec<String>) -> Vec<String> {
+    for item in right {
+        if !item.trim().is_empty() && !left.contains(&item) {
+            left.push(item);
+        }
+    }
+    left
+}
+
+fn unique_strings(items: Vec<String>) -> Vec<String> {
+    items.into_iter().fold(Vec::new(), |mut unique, item| {
+        if !item.trim().is_empty() && !unique.contains(&item) {
+            unique.push(item);
+        }
+        unique
+    })
 }
 
 fn contains_any(value: &str, needles: &[&str]) -> bool {

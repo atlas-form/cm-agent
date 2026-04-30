@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::{
-    MemoryBundle, SessionContext,
+    MemoryBundle, SessionContext, TaskGraphMemorySummary,
     agent::{
         commander::{Commander, CommanderChannels, CommanderOptions},
         worker::Worker,
@@ -63,6 +63,11 @@ pub struct SessionRuntimeInput {
 pub struct SessionResult {
     pub session_id: SessionId,
     pub output: String,
+    pub task_graphs: Vec<TaskGraphMemorySummary>,
+    pub role_summaries: Vec<crate::RoleMemorySummary>,
+    pub risks: Vec<String>,
+    pub open_questions: Vec<String>,
+    pub evaluation_summary: Option<String>,
 }
 
 pub struct SessionRuntime {
@@ -242,9 +247,43 @@ impl SessionRuntime {
         })
         .await;
 
+        let task_graphs = self
+            .session_context
+            .extensions()
+            .with::<Vec<TaskGraphMemorySummary>, _>(Clone::clone)
+            .unwrap_or_default();
+        let role_summaries = task_graphs
+            .iter()
+            .flat_map(|summary| summary.role_summaries.clone())
+            .collect::<Vec<_>>();
+        let risks = unique_strings(
+            task_graphs
+                .iter()
+                .flat_map(|summary| summary.risks.clone())
+                .collect(),
+        );
+        let open_questions = unique_strings(
+            task_graphs
+                .iter()
+                .flat_map(|summary| summary.open_questions.clone())
+                .collect(),
+        );
+        let evaluation_summary = (!task_graphs.is_empty()).then(|| {
+            task_graphs
+                .iter()
+                .filter_map(|summary| summary.evaluation_summary.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+
         Ok(SessionResult {
             session_id: self.session_id.clone(),
             output,
+            task_graphs,
+            role_summaries,
+            risks,
+            open_questions,
+            evaluation_summary,
         })
     }
 
@@ -303,4 +342,13 @@ fn next_id(prefix: &str) -> String {
         .unwrap_or(0);
     let sequence = NEXT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{millis}-{sequence}")
+}
+
+fn unique_strings(items: Vec<String>) -> Vec<String> {
+    items.into_iter().fold(Vec::new(), |mut unique, item| {
+        if !item.trim().is_empty() && !unique.contains(&item) {
+            unique.push(item);
+        }
+        unique
+    })
 }

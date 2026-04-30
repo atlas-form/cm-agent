@@ -3,7 +3,10 @@ use std::{collections::BTreeMap, time::SystemTime};
 use serde::{Deserialize, Serialize};
 
 use super::{MemoryCompactionPolicy, MemoryWriteOutcome};
-use crate::core::protocol::{AgentId, SessionId, TaskId, UserId, WorkspaceId};
+use crate::core::protocol::{
+    AgentId, SessionId, TaskGraphId, TaskId, TaskNodeId, UserId, WorkerId, WorkerReportStatus,
+    WorkspaceId,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MemoryScope {
@@ -37,6 +40,37 @@ pub struct SessionSnapshot {
     pub summary: String,
     pub final_output: String,
     pub blackboard: BTreeMap<String, String>,
+    pub task_graphs: Vec<TaskGraphMemorySummary>,
+    pub role_summaries: Vec<RoleMemorySummary>,
+    pub risks: Vec<String>,
+    pub open_questions: Vec<String>,
+    pub evaluation_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskGraphMemorySummary {
+    pub graph_id: TaskGraphId,
+    pub root_task: String,
+    pub roles: Vec<String>,
+    pub role_summaries: Vec<RoleMemorySummary>,
+    pub risks: Vec<String>,
+    pub open_questions: Vec<String>,
+    pub evaluation_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleMemorySummary {
+    pub graph_id: TaskGraphId,
+    pub node_id: TaskNodeId,
+    pub worker_id: WorkerId,
+    pub role: String,
+    pub summary: String,
+    pub findings: Vec<String>,
+    pub recommendations: Vec<String>,
+    pub evidence: Vec<String>,
+    pub risks: Vec<String>,
+    pub open_questions: Vec<String>,
+    pub status: WorkerReportStatus,
 }
 
 #[derive(Debug, Default)]

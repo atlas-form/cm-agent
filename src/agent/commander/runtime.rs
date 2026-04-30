@@ -7,7 +7,7 @@ use super::{
     TaskGraphRuntime, TaskMemory, decision_intent_from_json, plan_task_graph,
 };
 use crate::{
-    agent_session::MemoryRecord,
+    agent_session::{MemoryRecord, TaskGraphMemorySummary},
     cognition::{Cognition, CognitionInput, CognitionResult, Context, Fact, Intent, IntentKind},
     core::{
         messaging::{MessageRx, MessageTx},
@@ -30,6 +30,8 @@ pub trait CommanderSessionContext: Send + Sync {
     fn memory_records(&self) -> Vec<MemoryRecord> {
         Vec::new()
     }
+
+    fn record_task_graph_memory(&self, _summary: TaskGraphMemorySummary) {}
 }
 
 pub struct CommanderChannels {
@@ -450,6 +452,7 @@ impl Commander {
             graph_id: report.graph_id.clone(),
             node_id: report.node_id.clone(),
             worker_id: report.worker_id.clone(),
+            report: Box::new(report.clone()),
         });
 
         let Some(mut runtime) = self.active_task_graph.take() else {
@@ -548,6 +551,8 @@ impl Commander {
 
     async fn finish_task_graph(&mut self, runtime: TaskGraphRuntime) {
         let content = runtime.synthesize();
+        self.session_context
+            .record_task_graph_memory(runtime.memory_summary());
         self.emit_event(SessionEvent::TaskGraphFinished {
             session_id: self.session_id_from_context(&self.current_context),
             graph_id: runtime.graph.graph_id.clone(),

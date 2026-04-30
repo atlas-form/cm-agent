@@ -10,14 +10,17 @@ pub use crate::{
         InMemoryMemoryStore, MemoryBudget, MemoryBundle, MemoryCompactionPolicy,
         MemoryCompactionStats, MemoryCompactor, MemoryId, MemoryKind, MemoryQuery, MemoryRecord,
         MemoryScope, MemorySource, MemoryStore, MemoryWriteOutcome, NoopMemoryStore,
-        RoleCognitionFactory, SessionEventRx, SessionEventTx, SessionResult, SessionRuntimeConfig,
-        SessionSnapshot,
+        RoleCognitionFactory, RoleMemorySummary, SessionEventRx, SessionEventTx, SessionResult,
+        SessionRuntimeConfig, SessionSnapshot, TaskGraphMemorySummary,
     },
     cognition::{
         Cognition, CognitionEngine, CognitionFailure, CognitionInput, CognitionOutput,
         CognitionResult, Context, Fact, FailureReason, Intent, IntentKind, JsonTemplateDecoder,
     },
-    core::protocol::{AgentId, SessionEvent, SessionId, UserId, WorkspaceId},
+    core::protocol::{
+        AgentId, SessionEvent, SessionId, TaskGraphId, TaskNodeId, UserId, WorkerId,
+        WorkerReportStatus, WorkspaceId,
+    },
     roles::{
         RoleAction, RoleAssignment, RoleCatalog, RoleCollaborationPlan, RoleContribution, RoleId,
         RoleProfile, RolePromptBuilder, RolePromptInput, RoleRoute, RoleRouteInput, RoleRouter,
