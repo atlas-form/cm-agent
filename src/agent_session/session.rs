@@ -5,8 +5,10 @@ use crate::{
     SessionRuntimeConfig, SessionRuntimeInput, SessionSnapshot,
     agent_error::Result,
     cognition::Cognition,
-    core::protocol::{AgentId, MessageContext, SessionEvent, SessionId, UserId, WorkspaceId},
-    roles::{RoleCatalog, RoleProfile},
+    core::protocol::{
+        AgentId, MessageContext, SessionEvent, SessionId, TaskId, UserId, WorkspaceId,
+    },
+    roles::{RoleCatalog, RoleProfile, RoleRouteInput, RoleRouter},
 };
 
 pub type CognitionFactory =
@@ -79,15 +81,15 @@ impl AgentSession {
         event_tx: Option<tokio::sync::mpsc::Sender<crate::core::protocol::SessionEvent>>,
     ) -> Result<SessionResult> {
         let event_tx_for_persist = event_tx.clone();
+        let input = input.into();
         let commander_cognition = (self.config.commander_cognition)()?;
-        let workers = self
-            .config
-            .roles
-            .roles()
+        let selected_roles =
+            select_roles_for_task(&self.config.roles, &self.config.runtime, &input);
+        let workers = selected_roles
             .iter()
             .map(|role| {
                 Ok(crate::agent_session::SessionRuntimeWorkerInput {
-                    role: role.clone(),
+                    role: (*role).clone(),
                     cognition: (self.config.worker_cognition)(role)?,
                 })
             })
@@ -103,7 +105,7 @@ impl AgentSession {
         let mut runtime = SessionRuntime::start(SessionRuntimeInput {
             session_id: self.scope.session_id.clone(),
             context,
-            task_description: input.into(),
+            task_description: input,
             memory_bundle,
             commander_cognition,
             workers,
@@ -189,5 +191,94 @@ impl AgentSession {
             );
         }
         crate::MemoryWriteOutcome::default()
+    }
+}
+
+fn select_roles_for_task<'a>(
+    catalog: &'a RoleCatalog,
+    runtime: &SessionRuntimeConfig,
+    input: &str,
+) -> Vec<&'a RoleProfile> {
+    let mut runtime_roles = Vec::new();
+
+    let role_router = RoleRouter::new(catalog.clone());
+    let role_route = role_router.route(RoleRouteInput {
+        message: input.to_string(),
+        domain_id: Some("domain.general".to_string()),
+        action: None,
+        max_roles: 3,
+    });
+
+    if runtime.commander_fast_route {
+        let graph = crate::agent::commander::plan_task_graph(
+            &TaskId("preselect".to_string()),
+            input,
+            Some(&role_route),
+        );
+        runtime_roles.extend(graph.nodes.into_iter().map(|node| node.role));
+    }
+
+    if runtime_roles.is_empty() {
+        runtime_roles.push(role_route.primary_runtime_role);
+        runtime_roles.extend(role_route.support_runtime_roles);
+    }
+    if !runtime_roles.iter().any(|role| role == "chat") {
+        runtime_roles.push("chat".to_string());
+    }
+
+    let mut selected = Vec::new();
+    for runtime_role in runtime_roles {
+        if selected
+            .iter()
+            .any(|role: &&RoleProfile| role.runtime_role == runtime_role)
+        {
+            continue;
+        }
+        if let Some(role) = catalog
+            .roles()
+            .iter()
+            .find(|role| role.runtime_role == runtime_role)
+        {
+            selected.push(role);
+        }
+    }
+    if selected.is_empty()
+        && let Some(role) = catalog.roles().first()
+    {
+        selected.push(role);
+    }
+    selected
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::select_roles_for_task;
+    use crate::{RoleCatalog, SessionRuntimeConfig};
+
+    #[test]
+    fn selects_only_roles_needed_by_task_graph() {
+        let roles = RoleCatalog::builtin();
+        let selected = select_roles_for_task(
+            &roles,
+            &SessionRuntimeConfig {
+                response_timeout: Duration::from_secs(300),
+                event_buffer: 1024,
+                commander_fast_route: true,
+                commander_fast_route_min_score: 2.0,
+            },
+            "我是做咖啡运营的，主要营销平台是抖音，现在马上就五一了，请给提升转化率的方案",
+        )
+        .into_iter()
+        .map(|role| role.runtime_role.clone())
+        .collect::<Vec<_>>();
+
+        assert!(selected.contains(&"data".to_string()));
+        assert!(selected.contains(&"accounting".to_string()));
+        assert!(selected.contains(&"creative".to_string()));
+        assert!(selected.contains(&"ops".to_string()));
+        assert!(selected.contains(&"chat".to_string()));
+        assert!(!selected.contains(&"engineering".to_string()));
     }
 }

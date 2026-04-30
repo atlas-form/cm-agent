@@ -195,7 +195,7 @@ fn test_role_output(input: &CognitionInput) -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn manager_initializes_builtin_roles_for_each_session() {
+async fn manager_initializes_selected_roles_for_each_session() {
     let manager = AgentManager::new(AgentManagerConfig::new(
         Arc::new(|| Ok(Box::new(RouteWithoutTargetCommanderCognition))),
         Arc::new(|| Ok(Box::new(NoopWorkerCognition))),
@@ -207,7 +207,7 @@ async fn manager_initializes_builtin_roles_for_each_session() {
             workspace_id: None,
             agent_id: AgentId("role-agent".to_string()),
             session_id: SessionId("role-session".to_string()),
-            input: "verify default roles".to_string(),
+            input: "你能解释一下这个 agent 是什么吗".to_string(),
         })
         .await
         .expect("request should complete");
@@ -240,7 +240,7 @@ async fn role_worker_receives_role_context() {
             workspace_id: None,
             agent_id: AgentId("role-agent".to_string()),
             session_id: SessionId("role-session-context".to_string()),
-            input: "verify role context".to_string(),
+            input: "帮我做一个运营增长方案".to_string(),
         })
         .await
         .expect("request should complete");
@@ -253,7 +253,7 @@ async fn role_worker_receives_role_context() {
 }
 
 #[tokio::test]
-async fn role_aware_worker_factory_receives_each_builtin_role() {
+async fn role_aware_worker_factory_receives_selected_roles() {
     let available_workers = Arc::new(Mutex::new(None));
     let constructed_roles = Arc::new(Mutex::new(HashSet::new()));
     let commander_capture = Arc::clone(&available_workers);
@@ -279,17 +279,20 @@ async fn role_aware_worker_factory_receives_each_builtin_role() {
             workspace_id: None,
             agent_id: AgentId("role-agent".to_string()),
             session_id: SessionId("role-session-factory".to_string()),
-            input: "verify role factory".to_string(),
+            input: "我是做咖啡运营的，主要营销平台是抖音，现在马上就五一了，请给提升转化率的方案"
+                .to_string(),
         })
         .await
         .expect("request should complete");
 
     let constructed_roles = constructed_roles.lock().expect("lock constructed roles");
-    assert_eq!(constructed_roles.len(), 9);
     assert!(constructed_roles.contains("chat"));
     assert!(constructed_roles.contains("ops"));
     assert!(constructed_roles.contains("data"));
-    assert!(constructed_roles.contains("web"));
+    assert!(constructed_roles.contains("accounting"));
+    assert!(constructed_roles.contains("creative"));
+    assert!(!constructed_roles.contains("engineering"));
+    assert!(!constructed_roles.contains("web"));
 }
 
 #[tokio::test]

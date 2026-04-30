@@ -1,0 +1,114 @@
+{
+  "roles": [
+    {
+      "id": "role.chat-assistant",
+      "name": "对话助手",
+      "runtime_role": "chat",
+      "priority": 5,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["你好", "hello", "hi", "问一下", "请问", "什么", "为什么", "怎么", "如何", "是否", "是不是", "能否", "可以吗", "解释", "说明", "区别", "概念", "什么意思", "聊聊"],
+      "preferred_actions": ["answer", "query"],
+      "required_capabilities": ["chat.answer", "chat.clarification"],
+      "optional_capabilities": ["knowledge.explanation", "intent.classification"]
+    },
+    {
+      "id": "role.ops-strategist",
+      "name": "运营策略师",
+      "runtime_role": "ops",
+      "priority": 10,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["运营", "增长", "策略", "活动", "投放", "推广", "转化", "复盘", "营销", "获客", "拉新", "促活", "留存", "复购"],
+      "preferred_actions": ["plan", "optimize", "execute"],
+      "required_capabilities": ["ops.strategy", "campaign.orchestration"],
+      "optional_capabilities": ["data.analysis", "creative.content", "service.workflow"]
+    },
+    {
+      "id": "role.data-analyst",
+      "name": "数据分析师",
+      "runtime_role": "data",
+      "priority": 20,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["数据", "分析", "报表", "指标", "预测", "漏斗", "归因", "A/B"],
+      "preferred_actions": ["analyze", "query", "plan"],
+      "required_capabilities": ["data.analysis", "metrics.diagnosis"],
+      "optional_capabilities": ["forecast.demand", "attribution.modeling"]
+    },
+    {
+      "id": "role.customer-success",
+      "name": "客户成功专员",
+      "runtime_role": "service",
+      "priority": 30,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["客服", "售后", "投诉", "退款", "满意度", "NPS", "服务"],
+      "preferred_actions": ["execute", "optimize", "query"],
+      "required_capabilities": ["service.workflow", "service.sentiment"],
+      "optional_capabilities": ["nps.analysis", "refund.process"]
+    },
+    {
+      "id": "role.creative-studio",
+      "name": "内容创意师",
+      "runtime_role": "creative",
+      "priority": 40,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["文案", "创意", "视频", "脚本", "种草", "直播", "标题"],
+      "preferred_actions": ["create", "optimize"],
+      "required_capabilities": ["creative.content"],
+      "optional_capabilities": ["creative.video", "creative.copywriting", "seo.title"]
+    },
+    {
+      "id": "role.engineering-architect",
+      "name": "技术架构师",
+      "runtime_role": "engineering",
+      "priority": 50,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["技术", "架构", "接口", "性能", "SLA", "故障", "系统"],
+      "preferred_actions": ["analyze", "execute", "optimize"],
+      "required_capabilities": ["engineering.architecture", "engineering.reliability"],
+      "optional_capabilities": ["engineering.sla", "data.pipeline"]
+    },
+    {
+      "id": "role.finance-analyst",
+      "name": "财务分析师",
+      "runtime_role": "accounting",
+      "priority": 60,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["财务", "成本", "利润", "ROI", "预算", "现金流", "毛利"],
+      "preferred_actions": ["analyze", "plan", "query"],
+      "required_capabilities": ["finance.profitability", "finance.cashflow"],
+      "optional_capabilities": ["budget.planning", "roi.modeling"]
+    },
+    {
+      "id": "role.design-core",
+      "name": "设计师",
+      "runtime_role": "design",
+      "priority": 70,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["设计", "视觉", "主图", "详情页", "海报", "排版", "版式", "UI", "UX"],
+      "preferred_actions": ["create", "optimize"],
+      "required_capabilities": ["design.visual", "design.layout"],
+      "optional_capabilities": ["creative.content", "conversion.optimization"]
+    },
+    {
+      "id": "role.web-seo",
+      "name": "SEO专家",
+      "runtime_role": "web",
+      "priority": 80,
+      "domains": ["domain.general", "domain.ecommerce", "domain.education"],
+      "keywords": ["SEO", "关键词", "搜索", "自然流量", "收录", "排名", "标题优化"],
+      "preferred_actions": ["analyze", "optimize", "create"],
+      "required_capabilities": ["seo.optimization", "web.content"],
+      "optional_capabilities": ["creative.copywriting", "data.analysis"]
+    },
+    {
+      "id": "role.douyin-ads",
+      "name": "千川投放专员",
+      "runtime_role": "douyin_ads",
+      "priority": 25,
+      "domains": ["domain.ecommerce"],
+      "keywords": ["千川", "投流", "ROI", "CPC", "计划", "人群包"],
+      "preferred_actions": ["analyze", "optimize", "execute"],
+      "required_capabilities": ["ads.optimization", "roi.control"],
+      "optional_capabilities": ["data.analysis", "creative.content"]
+    }
+  ]
+}

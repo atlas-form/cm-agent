@@ -1,9 +1,11 @@
+use std::{collections::HashSet, env, fs, path::Path};
+
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    core::protocol::WorkerProfile,
-    roles::{RoleAction, RoleId, RoleProfile},
-};
+use crate::{core::protocol::WorkerProfile, roles::RoleProfile};
+
+const DEFAULT_ROLES_PATH: &str = "config/roles.json";
+const ROLES_CONFIG_ENV: &str = "CM_AGENT_ROLES";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleCatalog {
@@ -13,7 +15,28 @@ pub struct RoleCatalog {
 impl RoleCatalog {
     pub fn builtin() -> Self {
         Self {
-            roles: builtin_roles(),
+            roles: parse_configured_roles(include_str!("../../config/roles.json"))
+                .expect("embedded config/roles.json must be valid"),
+        }
+    }
+
+    pub fn configured() -> Self {
+        let path = env::var(ROLES_CONFIG_ENV)
+            .ok()
+            .filter(|path| !path.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_ROLES_PATH.to_string());
+        if !Path::new(&path).exists() {
+            return Self::builtin();
+        }
+
+        match load_configured_roles(&path) {
+            Ok(roles) => Self { roles },
+            Err(error) => {
+                crate::log_error_msg!(&format!(
+                    "configured roles ignored: path={path}, error={error}"
+                ));
+                Self::builtin()
+            }
         }
     }
 
@@ -39,189 +62,77 @@ impl Default for RoleCatalog {
     }
 }
 
-fn builtin_roles() -> Vec<RoleProfile> {
-    vec![
-        role(
-            "role.chat-assistant",
-            "对话助手",
-            "chat",
-            5,
-            &[
-                "你好",
-                "hello",
-                "hi",
-                "问一下",
-                "请问",
-                "什么",
-                "为什么",
-                "怎么",
-                "如何",
-                "是否",
-                "是不是",
-                "能否",
-                "可以吗",
-                "解释",
-                "说明",
-                "区别",
-                "概念",
-                "什么意思",
-                "聊聊",
-            ],
-            &[RoleAction::Answer, RoleAction::Query],
-            &["chat.answer", "chat.clarification"],
-            &["knowledge.explanation", "intent.classification"],
-        ),
-        role(
-            "role.ops-strategist",
-            "运营策略师",
-            "ops",
-            10,
-            &[
-                "运营", "增长", "策略", "活动", "投放", "推广", "转化", "复盘", "营销", "获客",
-                "拉新", "促活", "留存", "复购",
-            ],
-            &[RoleAction::Plan, RoleAction::Optimize, RoleAction::Execute],
-            &["ops.strategy", "campaign.orchestration"],
-            &["data.analysis", "creative.content", "service.workflow"],
-        ),
-        role(
-            "role.data-analyst",
-            "数据分析师",
-            "data",
-            20,
-            &[
-                "数据", "分析", "报表", "指标", "预测", "漏斗", "归因", "A/B",
-            ],
-            &[RoleAction::Analyze, RoleAction::Query, RoleAction::Plan],
-            &["data.analysis", "metrics.diagnosis"],
-            &["forecast.demand", "attribution.modeling"],
-        ),
-        role(
-            "role.customer-success",
-            "客户成功专员",
-            "service",
-            30,
-            &["客服", "售后", "投诉", "退款", "满意度", "NPS", "服务"],
-            &[RoleAction::Execute, RoleAction::Optimize, RoleAction::Query],
-            &["service.workflow", "service.sentiment"],
-            &["nps.analysis", "refund.process"],
-        ),
-        role(
-            "role.creative-studio",
-            "内容创意师",
-            "creative",
-            40,
-            &["文案", "创意", "视频", "脚本", "种草", "直播", "标题"],
-            &[RoleAction::Create, RoleAction::Optimize],
-            &["creative.content"],
-            &["creative.video", "creative.copywriting", "seo.title"],
-        ),
-        role(
-            "role.engineering-architect",
-            "技术架构师",
-            "engineering",
-            50,
-            &["技术", "架构", "接口", "性能", "SLA", "故障", "系统"],
-            &[
-                RoleAction::Analyze,
-                RoleAction::Execute,
-                RoleAction::Optimize,
-            ],
-            &["engineering.architecture", "engineering.reliability"],
-            &["engineering.sla", "data.pipeline"],
-        ),
-        role(
-            "role.finance-analyst",
-            "财务分析师",
-            "accounting",
-            60,
-            &["财务", "成本", "利润", "ROI", "预算", "现金流", "毛利"],
-            &[RoleAction::Analyze, RoleAction::Plan, RoleAction::Query],
-            &["finance.profitability", "finance.cashflow"],
-            &["budget.planning", "roi.modeling"],
-        ),
-        role(
-            "role.design-core",
-            "设计师",
-            "design",
-            70,
-            &[
-                "设计",
-                "视觉",
-                "主图",
-                "详情页",
-                "海报",
-                "排版",
-                "版式",
-                "UI",
-                "UX",
-            ],
-            &[RoleAction::Create, RoleAction::Optimize],
-            &["design.visual", "design.layout"],
-            &["creative.content", "conversion.optimization"],
-        ),
-        role(
-            "role.web-seo",
-            "SEO专家",
-            "web",
-            80,
-            &[
-                "SEO",
-                "关键词",
-                "搜索",
-                "自然流量",
-                "收录",
-                "排名",
-                "标题优化",
-            ],
-            &[
-                RoleAction::Analyze,
-                RoleAction::Optimize,
-                RoleAction::Create,
-            ],
-            &["seo.optimization", "web.content"],
-            &["creative.copywriting", "data.analysis"],
-        ),
-    ]
+#[derive(Debug, Clone, Deserialize)]
+struct ConfiguredRoleSet {
+    #[serde(default)]
+    roles: Vec<RoleProfile>,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn role(
-    id: &str,
-    name: &str,
-    runtime_role: &str,
-    priority: u32,
-    keywords: &[&str],
-    preferred_actions: &[RoleAction],
-    required_capabilities: &[&str],
-    optional_capabilities: &[&str],
-) -> RoleProfile {
-    RoleProfile {
-        id: RoleId(id.to_string()),
-        name: name.to_string(),
-        runtime_role: runtime_role.to_string(),
-        priority,
-        domains: vec![
-            "domain.general".to_string(),
-            "domain.ecommerce".to_string(),
-            "domain.education".to_string(),
-        ],
-        keywords: keywords.iter().map(|value| value.to_string()).collect(),
-        preferred_actions: preferred_actions.to_vec(),
-        required_capabilities: required_capabilities
-            .iter()
-            .map(|value| value.to_string())
-            .collect(),
-        optional_capabilities: optional_capabilities
-            .iter()
-            .map(|value| value.to_string())
-            .collect(),
+fn load_configured_roles(path: impl AsRef<Path>) -> Result<Vec<RoleProfile>, String> {
+    let content = fs::read_to_string(path.as_ref()).map_err(|error| error.to_string())?;
+    parse_configured_roles(&content)
+}
+
+fn parse_configured_roles(content: &str) -> Result<Vec<RoleProfile>, String> {
+    let configured = serde_json::from_str::<ConfiguredRoleSet>(content)
+        .map_err(|error| format!("invalid roles json: {error}"))?;
+    validate_configured_roles(&configured.roles)?;
+    Ok(configured.roles)
+}
+
+fn validate_configured_roles(configured: &[RoleProfile]) -> Result<(), String> {
+    if configured.is_empty() {
+        return Err("roles config must declare at least one role".to_string());
     }
+    let mut role_ids = HashSet::new();
+    let mut runtime_roles = HashSet::new();
+
+    for role in configured {
+        if role.id.0.trim().is_empty() {
+            return Err("role id is required".to_string());
+        }
+        if !role_ids.insert(role.id.0.clone()) {
+            return Err(format!("duplicate role id '{}'", role.id.0));
+        }
+        if role.name.trim().is_empty() {
+            return Err(format!("role '{}' must declare name", role.id.0));
+        }
+        if role.runtime_role.trim().is_empty() {
+            return Err(format!("role '{}' must declare runtime_role", role.id.0));
+        }
+        if !role
+            .runtime_role
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        {
+            return Err(format!(
+                "role '{}' runtime_role '{}' contains unsupported characters",
+                role.id.0, role.runtime_role
+            ));
+        }
+        if !runtime_roles.insert(role.runtime_role.clone()) {
+            return Err(format!("duplicate runtime_role '{}'", role.runtime_role));
+        }
+        if role.keywords.is_empty() {
+            return Err(format!(
+                "role '{}' should declare at least one keyword",
+                role.id.0
+            ));
+        }
+        if role.preferred_actions.is_empty() {
+            return Err(format!(
+                "role '{}' should declare at least one preferred action",
+                role.id.0
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::RoleCatalog;
+    use super::{RoleCatalog, parse_configured_roles};
 
     #[test]
     fn builtin_catalog_contains_expected_roles() {
@@ -250,5 +161,75 @@ mod tests {
                 .iter()
                 .any(|profile| profile.worker_id.0 == "worker.ops")
         );
+    }
+
+    #[test]
+    fn configured_roles_can_define_full_catalog() {
+        let configured = parse_configured_roles(
+            r#"{
+              "roles": [
+                {
+                  "id": "role.douyin-ads",
+                  "name": "千川投放专员",
+                  "runtime_role": "douyin_ads",
+                  "priority": 25,
+                  "domains": ["domain.ecommerce"],
+                  "keywords": ["千川", "投流", "roi", "cpc", "人群包"],
+                  "preferred_actions": ["analyze", "optimize", "execute"],
+                  "required_capabilities": ["ads.optimization", "roi.control"],
+                  "optional_capabilities": ["data.analysis", "creative.content"]
+                }
+              ]
+            }"#,
+        )
+        .expect("configured role should parse");
+
+        let catalog = RoleCatalog::new(configured);
+
+        let role = catalog
+            .roles()
+            .iter()
+            .find(|role| role.runtime_role == "douyin_ads")
+            .expect("configured role should be present");
+        assert_eq!(role.name, "千川投放专员");
+        assert!(
+            role.required_capabilities
+                .contains(&"ads.optimization".to_string())
+        );
+    }
+
+    #[test]
+    fn configured_roles_reject_duplicate_runtime_role() {
+        let error = parse_configured_roles(
+            r#"{
+              "roles": [
+                {
+                  "id": "role.a",
+                  "name": "角色A",
+                  "runtime_role": "same_role",
+                  "priority": 25,
+                  "domains": ["domain.ecommerce"],
+                  "keywords": ["A"],
+                  "preferred_actions": ["plan"],
+                  "required_capabilities": [],
+                  "optional_capabilities": []
+                },
+                {
+                  "id": "role.b",
+                  "name": "角色B",
+                  "runtime_role": "same_role",
+                  "priority": 26,
+                  "domains": ["domain.ecommerce"],
+                  "keywords": ["B"],
+                  "preferred_actions": ["plan"],
+                  "required_capabilities": [],
+                  "optional_capabilities": []
+                }
+              ]
+            }"#,
+        )
+        .expect_err("duplicate runtime role should fail");
+
+        assert!(error.contains("duplicate runtime_role"));
     }
 }

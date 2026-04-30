@@ -38,7 +38,7 @@ impl AgentManagerConfig {
     ) -> Self {
         Self {
             runtime: SessionRuntimeConfig::default(),
-            roles: RoleCatalog::builtin(),
+            roles: RoleCatalog::configured(),
             commander_cognition,
             worker_cognition,
             memory_store: Arc::new(NoopMemoryStore),

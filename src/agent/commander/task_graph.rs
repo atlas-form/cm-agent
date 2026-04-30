@@ -762,7 +762,14 @@ fn render_rule_template(template: &str, task: &str, rule: &TaskGraphRule) -> Str
 }
 
 fn validate_task_graph_rules(rules: &TaskGraphRuleSet) -> Result<(), String> {
-    let valid_roles = RoleCatalog::builtin()
+    validate_task_graph_rules_with_catalog(rules, &RoleCatalog::configured())
+}
+
+fn validate_task_graph_rules_with_catalog(
+    rules: &TaskGraphRuleSet,
+    catalog: &RoleCatalog,
+) -> Result<(), String> {
+    let valid_roles = catalog
         .roles()
         .iter()
         .map(|role| role.runtime_role.clone())
@@ -1536,6 +1543,50 @@ mod tests {
         )
         .expect_err("cycle should fail");
         assert!(cycle.contains("root node") || cycle.contains("cycle"));
+    }
+
+    #[test]
+    fn configurable_planner_accepts_roles_from_configured_catalog() {
+        let rules = serde_json::from_str::<TaskGraphRuleSet>(
+            r#"{
+              "rules": [
+                {
+                  "id": "douyin_ads_plan",
+                  "match_all": ["千川"],
+                  "nodes": [
+                    {
+                      "id": "ads",
+                      "role": "douyin_ads",
+                      "title": "千川投放",
+                      "objective": "优化千川计划：{{task}}"
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .expect("rules json should parse");
+        let mut roles = RoleCatalog::builtin().roles().to_vec();
+        roles.push(crate::roles::RoleProfile {
+            id: crate::roles::RoleId("role.douyin-ads".to_string()),
+            name: "千川投放专员".to_string(),
+            runtime_role: "douyin_ads".to_string(),
+            priority: 25,
+            domains: vec!["domain.ecommerce".to_string()],
+            keywords: vec!["千川".to_string(), "投流".to_string()],
+            preferred_actions: vec![crate::roles::RoleAction::Optimize],
+            required_capabilities: vec!["ads.optimization".to_string()],
+            optional_capabilities: vec!["data.analysis".to_string()],
+        });
+        let catalog = RoleCatalog::new(roles);
+
+        validate_task_graph_rules_with_catalog(&rules, &catalog)
+            .expect("configured role should be accepted");
+
+        let graph =
+            plan_task_graph_from_rules(&TaskId("task-ads".to_string()), "千川投流优化", &rules)
+                .expect("rule should match");
+        assert_eq!(graph.nodes[0].role, "douyin_ads");
     }
 
     #[test]
