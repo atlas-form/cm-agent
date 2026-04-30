@@ -1,4 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    env, fs,
+    path::Path,
+};
 
 use crate::{
     agent_session::{RoleMemorySummary, TaskGraphMemorySummary},
@@ -6,8 +10,11 @@ use crate::{
         Evaluation, RoleWorkOutput, TaskGraph, TaskGraphId, TaskId, TaskNode, TaskNodeId,
         WorkerAssignment, WorkerId, WorkerReport, WorkerReportStatus,
     },
-    roles::RoleRoute,
+    roles::{RoleCatalog, RoleRoute},
 };
+
+const DEFAULT_TASK_GRAPH_RULES_PATH: &str = "config/task-graph-rules.json";
+const TASK_GRAPH_RULES_ENV: &str = "CM_AGENT_TASK_GRAPH_RULES";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskNodeRuntimeState {
@@ -372,6 +379,13 @@ pub enum EvaluationOutcome {
 }
 
 pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) -> TaskGraph {
+    if let Some(graph) = plan_configured_task_graph(task_id, task) {
+        return graph;
+    }
+    plan_builtin_task_graph(task_id, task, route)
+}
+
+fn plan_builtin_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) -> TaskGraph {
     let lower = task.to_lowercase();
     let graph_id = TaskGraphId(format!("graph-{}", task_id.0));
     let max_attempts = 2;
@@ -609,6 +623,276 @@ fn node(
         acceptance: vec!["content must be specific and non-empty".to_string()],
         max_attempts,
     }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct TaskGraphRuleSet {
+    #[serde(default)]
+    rules: Vec<TaskGraphRule>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct TaskGraphRule {
+    id: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    match_any: Vec<String>,
+    #[serde(default)]
+    match_all: Vec<String>,
+    #[serde(default)]
+    match_all_any: Vec<Vec<String>>,
+    #[serde(default)]
+    nodes: Vec<TaskGraphRuleNode>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct TaskGraphRuleNode {
+    id: String,
+    role: String,
+    title: String,
+    objective: String,
+    #[serde(default)]
+    depends_on: Vec<String>,
+    #[serde(default = "default_rule_node_max_attempts")]
+    max_attempts: u8,
+    #[serde(default)]
+    acceptance: Vec<String>,
+}
+
+fn default_rule_node_max_attempts() -> u8 {
+    2
+}
+
+fn plan_configured_task_graph(task_id: &TaskId, task: &str) -> Option<TaskGraph> {
+    let path = env::var(TASK_GRAPH_RULES_ENV)
+        .ok()
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_TASK_GRAPH_RULES_PATH.to_string());
+    if !Path::new(&path).exists() {
+        return None;
+    }
+
+    let rules = match load_task_graph_rules(&path) {
+        Ok(rules) => rules,
+        Err(error) => {
+            crate::log_error_msg!(&format!(
+                "task graph rules ignored: path={path}, error={error}"
+            ));
+            return None;
+        }
+    };
+    plan_task_graph_from_rules(task_id, task, &rules)
+}
+
+fn load_task_graph_rules(path: impl AsRef<Path>) -> Result<TaskGraphRuleSet, String> {
+    let content = fs::read_to_string(path.as_ref()).map_err(|error| error.to_string())?;
+    parse_task_graph_rules(&content)
+}
+
+fn parse_task_graph_rules(content: &str) -> Result<TaskGraphRuleSet, String> {
+    let rules = serde_json::from_str::<TaskGraphRuleSet>(content)
+        .map_err(|error| format!("invalid task graph rules json: {error}"))?;
+    validate_task_graph_rules(&rules)?;
+    Ok(rules)
+}
+
+fn plan_task_graph_from_rules(
+    task_id: &TaskId,
+    task: &str,
+    rules: &TaskGraphRuleSet,
+) -> Option<TaskGraph> {
+    let rule = rules.rules.iter().find(|rule| rule.matches(task))?;
+    Some(build_configured_task_graph(task_id, task, rule))
+}
+
+impl TaskGraphRule {
+    fn matches(&self, task: &str) -> bool {
+        let lower = task.to_lowercase();
+        let contains = |token: &str| lower.contains(&token.to_lowercase());
+        if !self.match_all.iter().all(|token| contains(token)) {
+            return false;
+        }
+        if !self.match_any.is_empty() && !self.match_any.iter().any(|token| contains(token)) {
+            return false;
+        }
+        self.match_all_any
+            .iter()
+            .all(|group| group.iter().any(|token| contains(token)))
+    }
+}
+
+fn build_configured_task_graph(task_id: &TaskId, task: &str, rule: &TaskGraphRule) -> TaskGraph {
+    let graph_id = TaskGraphId(format!("graph-{}", task_id.0));
+    let nodes = rule
+        .nodes
+        .iter()
+        .map(|node| TaskNode {
+            id: TaskNodeId(node.id.clone()),
+            role: node.role.clone(),
+            worker_id: WorkerId(format!("worker.{}", node.role)),
+            title: node.title.clone(),
+            objective: render_rule_template(&node.objective, task, rule),
+            input_refs: node
+                .depends_on
+                .iter()
+                .map(|input_ref| TaskNodeId(input_ref.clone()))
+                .collect(),
+            acceptance: if node.acceptance.is_empty() {
+                vec!["content must be specific and non-empty".to_string()]
+            } else {
+                node.acceptance.clone()
+            },
+            max_attempts: node.max_attempts.max(1),
+        })
+        .collect();
+
+    TaskGraph {
+        graph_id,
+        root_task: task.to_string(),
+        nodes,
+    }
+}
+
+fn render_rule_template(template: &str, task: &str, rule: &TaskGraphRule) -> String {
+    template
+        .replace("{{task}}", task)
+        .replace("{{rule_id}}", &rule.id)
+        .replace("{{rule_description}}", &rule.description)
+}
+
+fn validate_task_graph_rules(rules: &TaskGraphRuleSet) -> Result<(), String> {
+    let valid_roles = RoleCatalog::builtin()
+        .roles()
+        .iter()
+        .map(|role| role.runtime_role.clone())
+        .collect::<HashSet<_>>();
+    let mut rule_ids = HashSet::new();
+
+    for rule in &rules.rules {
+        validate_rule(rule, &valid_roles)?;
+        if !rule_ids.insert(rule.id.clone()) {
+            return Err(format!("duplicate rule id '{}'", rule.id));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_rule(rule: &TaskGraphRule, valid_roles: &HashSet<String>) -> Result<(), String> {
+    if rule.id.trim().is_empty() {
+        return Err("rule id is required".to_string());
+    }
+    if rule.nodes.is_empty() {
+        return Err(format!("rule '{}' must declare at least one node", rule.id));
+    }
+
+    let mut node_ids = HashSet::new();
+    for node in &rule.nodes {
+        if node.id.trim().is_empty() {
+            return Err(format!("rule '{}' has node without id", rule.id));
+        }
+        if !node_ids.insert(node.id.clone()) {
+            return Err(format!(
+                "rule '{}' has duplicate node '{}'",
+                rule.id, node.id
+            ));
+        }
+        if !valid_roles.contains(&node.role) {
+            return Err(format!(
+                "rule '{}' node '{}' uses unknown role '{}'",
+                rule.id, node.id, node.role
+            ));
+        }
+        if node.title.trim().is_empty() {
+            return Err(format!(
+                "rule '{}' node '{}' must declare title",
+                rule.id, node.id
+            ));
+        }
+        if node.objective.trim().is_empty() {
+            return Err(format!(
+                "rule '{}' node '{}' must declare objective",
+                rule.id, node.id
+            ));
+        }
+    }
+
+    for node in &rule.nodes {
+        for dep in &node.depends_on {
+            if !node_ids.contains(dep) {
+                return Err(format!(
+                    "rule '{}' node '{}' depends on unknown node '{}'",
+                    rule.id, node.id, dep
+                ));
+            }
+            if dep == &node.id {
+                return Err(format!(
+                    "rule '{}' node '{}' cannot depend on itself",
+                    rule.id, node.id
+                ));
+            }
+        }
+    }
+
+    if !rule.nodes.iter().any(|node| node.depends_on.is_empty()) {
+        return Err(format!(
+            "rule '{}' must have at least one root node",
+            rule.id
+        ));
+    }
+    validate_rule_has_no_cycles(rule)
+}
+
+fn validate_rule_has_no_cycles(rule: &TaskGraphRule) -> Result<(), String> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum VisitState {
+        Visiting,
+        Done,
+    }
+
+    fn visit(
+        node_id: &str,
+        deps: &HashMap<&str, Vec<&str>>,
+        states: &mut HashMap<String, VisitState>,
+        rule_id: &str,
+    ) -> Result<(), String> {
+        match states.get(node_id).copied() {
+            Some(VisitState::Visiting) => {
+                return Err(format!(
+                    "rule '{rule_id}' contains dependency cycle at node '{node_id}'"
+                ));
+            }
+            Some(VisitState::Done) => return Ok(()),
+            None => {}
+        }
+
+        states.insert(node_id.to_string(), VisitState::Visiting);
+        for dep in deps.get(node_id).into_iter().flatten() {
+            visit(dep, deps, states, rule_id)?;
+        }
+        states.insert(node_id.to_string(), VisitState::Done);
+        Ok(())
+    }
+
+    let deps = rule
+        .nodes
+        .iter()
+        .map(|node| {
+            (
+                node.id.as_str(),
+                node.depends_on
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut states = HashMap::new();
+    for node in &rule.nodes {
+        visit(&node.id, &deps, &mut states, &rule.id)?;
+    }
+    Ok(())
 }
 
 fn evaluate_report(
@@ -1112,6 +1396,146 @@ mod tests {
         assert_eq!(creative.input_refs, vec![data.id.clone()]);
         assert!(ops.input_refs.contains(&accounting.id));
         assert!(ops.input_refs.contains(&creative.id));
+    }
+
+    #[test]
+    fn configurable_planner_builds_task_graph_from_matching_rule() {
+        let rules = parse_task_graph_rules(
+            r#"{
+              "rules": [
+                {
+                  "id": "douyin_holiday_conversion",
+                  "description": "抖音节日转化率",
+                  "match_any": ["抖音", "五一"],
+                  "match_all_any": [["转化率", "转化"], ["方案", "运营"]],
+                  "nodes": [
+                    {
+                      "id": "data",
+                      "role": "data",
+                      "title": "数据诊断",
+                      "objective": "分析：{{task}}"
+                    },
+                    {
+                      "id": "creative",
+                      "role": "creative",
+                      "title": "创意产出",
+                      "depends_on": ["data"],
+                      "objective": "规则={{rule_id}}；{{rule_description}}"
+                    },
+                    {
+                      "id": "ops",
+                      "role": "ops",
+                      "title": "运营方案",
+                      "depends_on": ["creative"],
+                      "objective": "整合输出"
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .expect("valid configured rules");
+
+        let graph = plan_task_graph_from_rules(
+            &TaskId("task-config".to_string()),
+            "五一抖音咖啡转化率运营方案",
+            &rules,
+        )
+        .expect("rule should match");
+
+        assert_eq!(graph.nodes.len(), 3);
+        assert_eq!(graph.nodes[0].role, "data");
+        assert!(graph.nodes[0].objective.contains("五一抖音咖啡"));
+        assert_eq!(graph.nodes[1].role, "creative");
+        assert_eq!(graph.nodes[1].input_refs, vec![graph.nodes[0].id.clone()]);
+        assert!(
+            graph.nodes[1]
+                .objective
+                .contains("douyin_holiday_conversion")
+        );
+        assert_eq!(graph.nodes[2].input_refs, vec![graph.nodes[1].id.clone()]);
+    }
+
+    #[test]
+    fn configurable_planner_returns_none_when_no_rule_matches() {
+        let rules = parse_task_graph_rules(
+            r#"{
+              "rules": [
+                {
+                  "id": "seo_only",
+                  "match_all": ["SEO"],
+                  "nodes": [
+                    {
+                      "id": "web",
+                      "role": "web",
+                      "title": "SEO方案",
+                      "objective": "优化搜索"
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .expect("valid configured rules");
+
+        let graph = plan_task_graph_from_rules(
+            &TaskId("task-no-match".to_string()),
+            "五一抖音咖啡转化率运营方案",
+            &rules,
+        );
+
+        assert!(graph.is_none());
+    }
+
+    #[test]
+    fn configurable_planner_rejects_unknown_role_and_cycles() {
+        let unknown_role = parse_task_graph_rules(
+            r#"{
+              "rules": [
+                {
+                  "id": "bad_role",
+                  "nodes": [
+                    {
+                      "id": "x",
+                      "role": "not_a_role",
+                      "title": "坏节点",
+                      "objective": "test"
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .expect_err("unknown role should fail");
+        assert!(unknown_role.contains("unknown role"));
+
+        let cycle = parse_task_graph_rules(
+            r#"{
+              "rules": [
+                {
+                  "id": "cycle",
+                  "nodes": [
+                    {
+                      "id": "a",
+                      "role": "data",
+                      "title": "A",
+                      "objective": "a",
+                      "depends_on": ["b"]
+                    },
+                    {
+                      "id": "b",
+                      "role": "ops",
+                      "title": "B",
+                      "objective": "b",
+                      "depends_on": ["a"]
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .expect_err("cycle should fail");
+        assert!(cycle.contains("root node") || cycle.contains("cycle"));
     }
 
     #[test]

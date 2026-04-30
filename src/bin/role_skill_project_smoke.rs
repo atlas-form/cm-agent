@@ -369,6 +369,18 @@ fn role_contract_items(role: &str) -> RoleContractItems {
             ],
             &["执行效果受样本量、渠道质量和设计交付节奏影响。"],
         ),
+        "creative" => (
+            &[
+                "创意侧关注短视频、直播脚本、种草文案和节日场景表达对点击与转化的影响。",
+                "抖音五一咖啡运营需要把出行、宅家、加班等消费场景前置到内容钩子中。",
+            ],
+            &[
+                "设计五一出行、宅家、加班三类短视频脚本方向。",
+                "把直播间利益点、限时福利和加购引导写进主播话术。",
+                "用标题CTR和完播率作为素材淘汰与放量依据。",
+            ],
+            &["创意承诺必须符合商品事实，避免夸大功效或制造售后风险。"],
+        ),
         "web" => (
             &[
                 "Web侧关注标题、关键词和页面内容对自然流量与点击率的影响。",
@@ -426,6 +438,15 @@ fn ensure_skill_request(role: &str, value: &mut Value, input: &CognitionInput) {
                 "stage": "冷启动/转化修复"
             },
             "reason": "用本地运营计划skill生成行动框架"
+        })),
+        "creative" => Some(json!({
+            "skill_id": "creative_title_ctr_scorer",
+            "input": {
+                "title": "五一出行冷萃咖啡随身带 9.9元尝鲜装限时抢",
+                "platform": "抖音",
+                "target_audience": "18-35岁通勤、出游和宅家咖啡消费者"
+            },
+            "reason": "用本地标题CTR评分skill验证短视频标题方向"
         })),
         "web" => Some(json!({
             "skill_id": "web_title_seo_scorer",
