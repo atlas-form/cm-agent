@@ -297,6 +297,65 @@ pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) 
 
     if contains_any(
         &lower,
+        &["客服", "售后", "投诉", "退款", "满意度", "nps", "服务"],
+    ) {
+        nodes.push(node(
+            "service",
+            "service",
+            "服务方案",
+            format!("给出客服、售后、投诉、退款或满意度处理方案：{task}"),
+            Vec::new(),
+            max_attempts,
+        ));
+    } else if contains_any(
+        &lower,
+        &[
+            "seo",
+            "关键词",
+            "搜索",
+            "自然流量",
+            "收录",
+            "排名",
+            "标题优化",
+            "独立站",
+        ],
+    ) {
+        nodes.push(node(
+            "web",
+            "web",
+            "Web/SEO方案",
+            format!("给出 SEO、关键词、收录、标题或自然流量增长方案：{task}"),
+            Vec::new(),
+            max_attempts,
+        ));
+    } else if contains_any(
+        &lower,
+        &[
+            "代码",
+            "rust",
+            "python",
+            "架构",
+            "接口",
+            "性能",
+            "sla",
+            "故障",
+            "系统",
+            "发布",
+            "回滚",
+            "稳定性",
+            "bug",
+        ],
+    ) {
+        nodes.push(node(
+            "engineering",
+            "engineering",
+            "工程判断",
+            format!("给出工程分析和实现建议：{task}"),
+            Vec::new(),
+            max_attempts,
+        ));
+    } else if contains_any(
+        &lower,
         &[
             "详情页",
             "设计",
@@ -382,15 +441,6 @@ pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) 
             "创意产出",
             "基于运营定位，产出内容创意或文案。".to_string(),
             vec!["ops"],
-            max_attempts,
-        ));
-    } else if contains_any(&lower, &["代码", "rust", "python", "架构", "实现", "bug"]) {
-        nodes.push(node(
-            "engineering",
-            "engineering",
-            "工程判断",
-            format!("给出工程分析和实现建议：{task}"),
-            Vec::new(),
             max_attempts,
         ));
     } else {
@@ -520,7 +570,7 @@ fn evaluate_quality_contract(report: &WorkerReport, output: &RoleWorkOutput) -> 
             "已查询",
             "已检索",
             "查询到",
-            "搜索结果",
+            "搜索结果显示",
             "数据库显示",
             "实时数据",
             "调用工具",
@@ -892,6 +942,42 @@ mod tests {
         let ops = graph.nodes.iter().find(|node| node.role == "ops").unwrap();
         assert_eq!(accounting.input_refs, vec![data.id.clone()]);
         assert_eq!(ops.input_refs, vec![accounting.id.clone()]);
+    }
+
+    #[test]
+    fn planner_prioritizes_service_role_for_support_workflows() {
+        let graph = plan_task_graph(
+            &TaskId("task-service".to_string()),
+            "客服团队近期投诉和退款增加，请设计一套售后SOP",
+            None,
+        );
+
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.nodes[0].role, "service");
+    }
+
+    #[test]
+    fn planner_prioritizes_engineering_role_for_sla_incidents() {
+        let graph = plan_task_graph(
+            &TaskId("task-engineering".to_string()),
+            "系统接口延迟升高并影响SLA，请给出架构排查和回滚方案",
+            None,
+        );
+
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.nodes[0].role, "engineering");
+    }
+
+    #[test]
+    fn planner_prioritizes_web_role_for_seo_workflows() {
+        let graph = plan_task_graph(
+            &TaskId("task-web".to_string()),
+            "为跨境电商独立站制定SEO关键词集群、标题优化和收录策略",
+            None,
+        );
+
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.nodes[0].role, "web");
     }
 
     #[test]

@@ -22,6 +22,7 @@ pub(crate) mod core;
 pub(crate) mod perception;
 #[path = "roles/lib.rs"]
 pub(crate) mod roles;
+pub(crate) mod skills;
 
 pub(crate) use core::{messaging, messaging::*, protocol, protocol::*};
 
