@@ -77,9 +77,9 @@ AgentManager
 
 - `Commander`
 - `Worker`
-- message loop
+- Commander / Worker async task 生命周期
 - action 推进
-- worker report 汇总
+- session 输出等待与关闭
 
 `SessionRuntime` 不应该变成全局对象。
 
@@ -115,6 +115,10 @@ AgentManager
 
 Commander 在 `SessionRuntime` 内作为 async task 运行。
 
+Commander 可以维护自己的内部 actor loop / state machine，用于接收消息、决策、调度 worker、汇总 worker report。
+
+但 Commander 不负责创建 session 边界，也不持有跨 session runtime 生命周期。
+
 默认 Commander 使用 fast route：
 
 ```text
@@ -136,6 +140,10 @@ LLM Commander 只作为诊断、实验或后续复杂 fallback 使用。
 Worker 不跨 session 持有状态。
 
 Worker 在 `SessionRuntime` 内作为 async task 运行。
+
+Worker 可以维护自己的内部 actor loop / state machine，用于接收 assignment、调用 cognition、推进 action、返回 report。
+
+但 Worker 不负责创建或管理 `SessionRuntime`。
 
 ## 生命周期
 

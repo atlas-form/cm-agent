@@ -48,7 +48,7 @@ pub struct CommanderOptions {
 
 pub struct Commander {
     id: AgentId,
-    world_id: AgentId,
+    host_id: AgentId,
     state: CommanderState,
     phase: CommanderPhase,
     current_task: Option<CommanderTask>,
@@ -73,7 +73,7 @@ pub struct Commander {
 impl Commander {
     pub fn new(
         id: AgentId,
-        world_id: AgentId,
+        host_id: AgentId,
         cognition: Box<dyn Cognition + Send>,
         channels: CommanderChannels,
         session_context: Arc<dyn CommanderSessionContext>,
@@ -82,7 +82,7 @@ impl Commander {
     ) -> Self {
         Self {
             id,
-            world_id,
+            host_id,
             state: CommanderState::Idle,
             phase: CommanderPhase::Idle,
             current_task: None,
@@ -174,7 +174,7 @@ impl Commander {
                     next_message_id(),
                     context,
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text {
                         content: final_worker_message(&task_id, output.as_deref()),
                     },
@@ -200,7 +200,7 @@ impl Commander {
                     next_message_id(),
                     context,
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text {
                         content: format!("任务失败: {} ({reason})", task_id.0),
                     },
@@ -285,7 +285,7 @@ impl Commander {
                         next_message_id(),
                         self.current_context.clone(),
                         self.id.clone(),
-                        self.world_id.clone(),
+                        self.host_id.clone(),
                         Payload::Text {
                             content: "任务分发失败：未找到可用 worker".to_string(),
                         },
@@ -301,7 +301,7 @@ impl Commander {
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text { content },
                 ));
             }
@@ -310,7 +310,7 @@ impl Commander {
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text {
                         content: "已评估该请求：当前策略是暂不接收新任务。".to_string(),
                     },
@@ -321,7 +321,7 @@ impl Commander {
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text {
                         content: "已评估当前输入：继续保持当前任务。".to_string(),
                     },
@@ -332,7 +332,7 @@ impl Commander {
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text {
                         content: format!("建议替换为新任务：{}", task.description),
                     },
@@ -343,7 +343,7 @@ impl Commander {
                     next_message_id(),
                     self.current_context.clone(),
                     self.id.clone(),
-                    self.world_id.clone(),
+                    self.host_id.clone(),
                     Payload::Text {
                         content: format!("策略建议：{hint}"),
                     },
@@ -561,7 +561,7 @@ impl Commander {
             next_message_id(),
             self.current_context.clone(),
             self.id.clone(),
-            self.world_id.clone(),
+            self.host_id.clone(),
             Payload::Text { content },
         ));
         self.active_task_graph = None;
@@ -595,7 +595,7 @@ impl Commander {
                 next_message_id(),
                 self.current_context.clone(),
                 self.id.clone(),
-                self.world_id.clone(),
+                self.host_id.clone(),
                 Payload::Text {
                     content: "任务分发失败：未找到可用 worker".to_string(),
                 },
@@ -771,7 +771,7 @@ impl Commander {
             next_message_id(),
             context.clone(),
             self.id.clone(),
-            self.world_id.clone(),
+            self.host_id.clone(),
             Payload::Text { content },
         ));
         self.emit_event(SessionEvent::CollaborationFinished {
