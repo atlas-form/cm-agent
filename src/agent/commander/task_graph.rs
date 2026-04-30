@@ -376,6 +376,22 @@ pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) 
     let graph_id = TaskGraphId(format!("graph-{}", task_id.0));
     let max_attempts = 2;
     let mut nodes = Vec::new();
+    let marketing_campaign = contains_any(
+        &lower,
+        &[
+            "抖音",
+            "直播",
+            "短视频",
+            "五一",
+            "节日",
+            "营销",
+            "活动",
+            "促销",
+            "投流",
+            "千川",
+            "引流",
+        ],
+    );
 
     if contains_any(
         &lower,
@@ -478,6 +494,27 @@ pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) 
                 max_attempts,
             ));
         }
+        if marketing_campaign && contains_any(&lower, &["转化率", "方案", "运营", "营销", "活动"])
+        {
+            if !nodes.iter().any(|node| node.role == "accounting") {
+                nodes.push(node(
+                    "accounting",
+                    "accounting",
+                    "预算评估",
+                    "基于上游数据诊断，评估活动成本、引流SKU、投流预算和经营风险。".to_string(),
+                    vec!["data"],
+                    max_attempts,
+                ));
+            }
+            nodes.push(node(
+                "creative",
+                "creative",
+                "创意产出",
+                "基于上游数据诊断，产出抖音短视频、直播或活动内容创意。".to_string(),
+                vec!["data"],
+                max_attempts,
+            ));
+        }
         if contains_any(&lower, &["运营", "调整", "方案", "策略"]) {
             let mut ops_inputs = Vec::new();
             if nodes.iter().any(|node| node.role == "design") {
@@ -485,6 +522,9 @@ pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) 
             }
             if nodes.iter().any(|node| node.role == "accounting") {
                 ops_inputs.push("accounting");
+            }
+            if nodes.iter().any(|node| node.role == "creative") {
+                ops_inputs.push("creative");
             }
             if ops_inputs.is_empty() {
                 ops_inputs.push("data");
@@ -498,7 +538,9 @@ pub fn plan_task_graph(task_id: &TaskId, task: &str, route: Option<&RoleRoute>) 
                 max_attempts,
             ));
         }
-        if contains_any(&lower, &["文案", "脚本", "标题", "内容"]) {
+        if contains_any(&lower, &["文案", "脚本", "标题", "内容"])
+            && !nodes.iter().any(|node| node.role == "creative")
+        {
             nodes.push(node(
                 "creative",
                 "creative",
@@ -1042,6 +1084,34 @@ mod tests {
         let ops = graph.nodes.iter().find(|node| node.role == "ops").unwrap();
         assert_eq!(accounting.input_refs, vec![data.id.clone()]);
         assert_eq!(ops.input_refs, vec![accounting.id.clone()]);
+    }
+
+    #[test]
+    fn planner_adds_finance_and_creative_for_douyin_holiday_conversion_plan() {
+        let graph = plan_task_graph(
+            &TaskId("task-coffee".to_string()),
+            "我是做咖啡运营的，主要营销平台是抖音，现在马上就五一了，\
+             可以帮我想一个运营方案吗提升我的转化率",
+            None,
+        );
+
+        let data = graph.nodes.iter().find(|node| node.role == "data").unwrap();
+        let accounting = graph
+            .nodes
+            .iter()
+            .find(|node| node.role == "accounting")
+            .unwrap();
+        let creative = graph
+            .nodes
+            .iter()
+            .find(|node| node.role == "creative")
+            .unwrap();
+        let ops = graph.nodes.iter().find(|node| node.role == "ops").unwrap();
+
+        assert_eq!(accounting.input_refs, vec![data.id.clone()]);
+        assert_eq!(creative.input_refs, vec![data.id.clone()]);
+        assert!(ops.input_refs.contains(&accounting.id));
+        assert!(ops.input_refs.contains(&creative.id));
     }
 
     #[test]

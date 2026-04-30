@@ -595,6 +595,9 @@ fn parse_skill_request(value: &serde_json::Value) -> Option<ParsedSkillRequest> 
         .to_string();
     let input = value
         .get("input")
+        .or_else(|| value.get("arguments"))
+        .or_else(|| value.get("args"))
+        .or_else(|| value.get("parameters"))
         .cloned()
         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
     let reason = string_field(value, "reason");
@@ -959,6 +962,27 @@ mod tests {
         assert_eq!(requests[0].skill_id, "accounting_roi_calc");
         assert_eq!(requests[0].input["investment"], 1000);
         assert_eq!(requests[0].reason.as_deref(), Some("需要计算ROI"));
+    }
+
+    #[test]
+    fn parses_skill_request_arguments_alias_from_llm_json() {
+        let requests = parse_skill_requests(
+            r#"{
+              "decision": {"kind": "NoAction"},
+              "skill_requests": [
+                {
+                  "skill_id": "ops_execution_plan",
+                  "arguments": {"goal": "提升五一咖啡转化率", "stage": "五一预热"}
+                }
+              ],
+              "role_output": {"summary": "需要运营计划"}
+            }"#,
+        );
+
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].skill_id, "ops_execution_plan");
+        assert_eq!(requests[0].input["goal"], "提升五一咖啡转化率");
+        assert_eq!(requests[0].input["stage"], "五一预热");
     }
 
     #[test]
