@@ -1,9 +1,11 @@
 use std::{collections::BTreeMap, time::SystemTime};
 
+use serde::{Deserialize, Serialize};
+
 use super::{MemoryCompactionPolicy, MemoryWriteOutcome};
 use crate::core::protocol::{AgentId, SessionId, TaskId, UserId, WorkspaceId};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MemoryScope {
     pub user_id: Option<UserId>,
     pub workspace_id: Option<WorkspaceId>,
@@ -42,10 +44,11 @@ pub struct NoopMemoryStore;
 
 impl MemoryStore for NoopMemoryStore {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MemoryId(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MemoryKind {
     SessionSummary,
     ConversationFact,
@@ -72,7 +75,7 @@ impl MemoryKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemorySource {
     pub kind: String,
     pub description: String,
@@ -87,7 +90,7 @@ impl MemorySource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryRecord {
     pub id: MemoryId,
     pub scope: MemoryScope,

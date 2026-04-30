@@ -30,6 +30,14 @@ impl InMemoryMemoryStore {
         }
     }
 
+    pub fn with_records(policy: MemoryCompactionPolicy, records: Vec<MemoryRecord>) -> Self {
+        let store = Self::with_policy(policy);
+        for record in records {
+            MemoryStore::upsert_record(&store, record);
+        }
+        store
+    }
+
     pub fn records(&self) -> Vec<MemoryRecord> {
         self.records
             .read()

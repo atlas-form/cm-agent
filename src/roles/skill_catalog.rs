@@ -45,7 +45,7 @@ impl RoleSkillCatalog {
 
         specs
             .into_iter()
-            .take(12)
+            .take(8)
             .map(format_skill_line)
             .collect::<Vec<_>>()
             .join("\n")
@@ -119,9 +119,8 @@ fn format_skill_line(spec: &SkillSpec) -> String {
     };
 
     format!(
-        "- `{}` ({}) mode={} required=[{}] optional=[{}] desc={}",
+        "- `{}` mode={} required=[{}] optional=[{}]",
         spec.id,
-        spec.name,
         mode,
         if required.is_empty() {
             "none".to_string()
@@ -132,8 +131,7 @@ fn format_skill_line(spec: &SkillSpec) -> String {
             "none".to_string()
         } else {
             optional.join(", ")
-        },
-        spec.description
+        }
     )
 }
 

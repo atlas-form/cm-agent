@@ -1,14 +1,16 @@
 use std::{
+    fs,
+    path::PathBuf,
     sync::{Arc, Mutex},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use async_trait::async_trait;
 use cm_agent::api::{
     AgentId, AgentManager, AgentManagerConfig, AgentRequest, Cognition, CognitionInput,
-    CognitionResult, InMemoryMemoryStore, MemoryBudget, MemoryCompactionPolicy, MemoryId,
-    MemoryKind, MemoryQuery, MemoryRecord, MemoryScope, MemorySource, MemoryStore, SessionEvent,
-    SessionId, UserId,
+    CognitionResult, FileMemoryStore, FileMemoryStoreError, InMemoryMemoryStore, MemoryBudget,
+    MemoryCompactionPolicy, MemoryId, MemoryKind, MemoryQuery, MemoryRecord, MemoryScope,
+    MemorySource, MemoryStore, SessionEvent, SessionId, SessionSnapshot, UserId,
 };
 use serde_json::json;
 
@@ -101,6 +103,20 @@ fn test_memory_record(
         created_at: SystemTime::now(),
         updated_at: SystemTime::now(),
     }
+}
+
+fn temp_memory_path(name: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_PATH: AtomicU64 = AtomicU64::new(1);
+    let millis = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis();
+    let sequence = NEXT_TEMP_PATH.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir()
+        .join("cm-agent-memory-tests")
+        .join(format!("{name}-{millis}-{sequence}.json"))
 }
 
 #[test]
@@ -391,6 +407,138 @@ fn load_bundle_respects_char_budget_even_after_store_compaction() {
 
     assert!(total_chars <= 30);
     assert!(!bundle.records.is_empty());
+}
+
+#[test]
+fn file_memory_store_writes_and_reloads_records() {
+    let path = temp_memory_path("reload");
+    let scope = MemoryScope {
+        user_id: Some(UserId("file-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+    {
+        let store = FileMemoryStore::open(&path).expect("open file memory store");
+        MemoryStore::upsert_record(
+            &store,
+            test_memory_record(
+                "file-record",
+                scope.clone(),
+                MemoryKind::UserPreference,
+                Some("platform"),
+                "用户偏好文件持久化 memory",
+                0.9,
+            ),
+        );
+    }
+
+    let store = FileMemoryStore::open(&path).expect("reload file memory store");
+    let mut query = MemoryQuery::scoped(scope);
+    query.kinds = vec![MemoryKind::UserPreference];
+    let bundle = MemoryStore::load_bundle(&store, query);
+
+    assert_eq!(bundle.records.len(), 1);
+    assert_eq!(bundle.records[0].content, "用户偏好文件持久化 memory");
+    assert!(
+        fs::read_to_string(&path)
+            .expect("read memory file")
+            .contains("\"version\"")
+    );
+}
+
+#[test]
+fn file_memory_store_compacts_before_flushing() {
+    let path = temp_memory_path("compact");
+    let store = FileMemoryStore::open_with_policy(
+        &path,
+        MemoryCompactionPolicy {
+            max_record_chars: 48,
+            ..MemoryCompactionPolicy::default()
+        },
+    )
+    .expect("open file memory store");
+    let scope = MemoryScope {
+        user_id: Some(UserId("file-compact-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: None,
+        task_id: None,
+    };
+
+    let outcome = MemoryStore::upsert_record(
+        &store,
+        test_memory_record(
+            "file-long-record",
+            scope,
+            MemoryKind::ConversationFact,
+            Some("long"),
+            "durable memory ".repeat(20),
+            0.9,
+        ),
+    );
+
+    let stored = store.records();
+    let persisted = fs::read_to_string(&path).expect("read memory file");
+    assert_eq!(outcome.written, 1);
+    assert_eq!(outcome.compaction.truncated_records, 1);
+    assert_eq!(stored.len(), 1);
+    assert!(stored[0].content.chars().count() <= 48);
+    assert!(persisted.contains("memory compacted"));
+}
+
+#[test]
+fn file_memory_store_persists_session_snapshot() {
+    let path = temp_memory_path("session");
+    let scope = MemoryScope {
+        user_id: Some(UserId("file-session-user".to_string())),
+        workspace_id: None,
+        agent_id: None,
+        session_id: Some(SessionId("file-session".to_string())),
+        task_id: None,
+    };
+    {
+        let store = FileMemoryStore::open(&path).expect("open file memory store");
+        let outcome = MemoryStore::persist_session(
+            &store,
+            &scope,
+            SessionSnapshot {
+                summary: "本次 session 形成了文件持久化 memory".to_string(),
+                final_output: "final output".to_string(),
+                blackboard: [("decision".to_string(), "使用文件 store".to_string())].into(),
+            },
+        );
+        assert_eq!(outcome.written, 2);
+    }
+
+    let store = FileMemoryStore::open(&path).expect("reload file memory store");
+    let bundle = MemoryStore::load_bundle(&store, MemoryQuery::scoped(scope));
+
+    assert!(
+        bundle
+            .records
+            .iter()
+            .any(|record| record.kind == MemoryKind::SessionSummary)
+    );
+    assert!(
+        bundle
+            .records
+            .iter()
+            .any(|record| record.kind == MemoryKind::ConversationFact
+                && record.key.as_deref() == Some("decision"))
+    );
+}
+
+#[test]
+fn file_memory_store_reports_corrupt_file_on_open() {
+    let path = temp_memory_path("corrupt");
+    fs::create_dir_all(path.parent().expect("temp path has parent")).expect("create temp dir");
+    fs::write(&path, "{not valid json").expect("write corrupt memory file");
+
+    let error = FileMemoryStore::open(&path).expect_err("corrupt file should fail");
+
+    assert!(matches!(error, FileMemoryStoreError::Json { .. }));
 }
 
 #[tokio::test]

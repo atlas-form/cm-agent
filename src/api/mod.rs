@@ -6,11 +6,12 @@ pub use crate::{
     agent_error::{Error, Result},
     agent_manager::{AgentManager, AgentManagerConfig, AgentRequest},
     agent_session::{
-        CognitionFactory, DeterministicMemoryCompactor, InMemoryMemoryStore, MemoryBudget,
-        MemoryBundle, MemoryCompactionPolicy, MemoryCompactionStats, MemoryCompactor, MemoryId,
-        MemoryKind, MemoryQuery, MemoryRecord, MemoryScope, MemorySource, MemoryStore,
-        MemoryWriteOutcome, NoopMemoryStore, RoleCognitionFactory, SessionEventRx, SessionEventTx,
-        SessionResult, SessionRuntimeConfig, SessionSnapshot,
+        CognitionFactory, DeterministicMemoryCompactor, FileMemoryStore, FileMemoryStoreError,
+        InMemoryMemoryStore, MemoryBudget, MemoryBundle, MemoryCompactionPolicy,
+        MemoryCompactionStats, MemoryCompactor, MemoryId, MemoryKind, MemoryQuery, MemoryRecord,
+        MemoryScope, MemorySource, MemoryStore, MemoryWriteOutcome, NoopMemoryStore,
+        RoleCognitionFactory, SessionEventRx, SessionEventTx, SessionResult, SessionRuntimeConfig,
+        SessionSnapshot,
     },
     cognition::{
         Cognition, CognitionEngine, CognitionFailure, CognitionInput, CognitionOutput,

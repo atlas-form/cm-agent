@@ -13,9 +13,9 @@ Role Phase 6: Role-Skill Alignment
 ## 状态总览
 
 ```text
-status: in_progress
+status: completed
 started: yes
-completed: no
+completed: yes
 ```
 
 ## Checklist
@@ -51,9 +51,10 @@ completed: no
 - [x] `cargo fmt`
 - [x] `cargo test`
 - [x] `cargo check --bins`
-- [ ] 远程 Ollama role matrix
+- [x] 远程 Ollama role matrix
 
 ## Notes
 
 - 本阶段仍不实现 skill 本体。
 - 目标是让 role 成为有专属 skill 边界的 agent。
+- 远程验证使用 `OLLAMA_BASE_URL=http://10.100.11.245:11434 OLLAMA_MODEL=gemma4:26b`，结果 `matrix_ok=true`。
