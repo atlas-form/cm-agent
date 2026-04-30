@@ -567,11 +567,10 @@ fn smart_pricing(input: &Value) -> Value {
             "vs当前利润": signed_percent(uplift_pct, 1),
             "竞争定位": price_position(p, avg_comp),
         });
-        if let Some(sp) = stock_pressure_price {
-            if (round2(p) - sp).abs() < 0.01 {
+        if let Some(sp) = stock_pressure_price
+            && (round2(p) - sp).abs() < 0.01 {
                 entry["标签"] = json!(format!("库存压力价（{}天库存）", stock_days.round()));
             }
-        }
         if monthly_profit > best_profit {
             best_profit = monthly_profit;
             best_price = round2(p);
@@ -861,7 +860,7 @@ fn abc_xyz_classifier(input: &Value) -> Value {
     if skus.is_empty() {
         skus = demo_skus();
     }
-    let data_source = if input["skus"].as_array().map_or(false, |a| !a.is_empty()) {
+    let data_source = if input["skus"].as_array().is_some_and(|a| !a.is_empty()) {
         "用户输入"
     } else {
         "演示数据（30个确定性模拟SKU）"

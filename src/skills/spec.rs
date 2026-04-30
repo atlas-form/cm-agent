@@ -7,7 +7,9 @@ use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SkillCategory {
+    #[default]
     General,
     Planning,
     Research,
@@ -21,11 +23,6 @@ pub enum SkillCategory {
     Custom(String),
 }
 
-impl Default for SkillCategory {
-    fn default() -> Self {
-        Self::General
-    }
-}
 
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,

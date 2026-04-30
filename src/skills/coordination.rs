@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
@@ -364,7 +366,7 @@ impl Skill for CoordinationAgentHandoff {
             .into_iter()
             .filter(|(agent, _, _)| *agent != current)
             .collect::<Vec<_>>();
-        matches.sort_by(|a, b| b.2.cmp(&a.2));
+        matches.sort_by_key(|(_, _, score)| Reverse(*score));
         if matches.is_empty() {
             matches.push(("ops".to_owned(), "运营专家".to_owned(), 0));
         }
@@ -532,7 +534,7 @@ deferred_coordination_skill!(
     defaults {
         "platform" => |p: &Value| string_param(p, "platform").map(Some),
         "product_id" => |p: &Value| string_param(p, "product_id").map(Some),
-        "new_price" => |p: &Value| Ok(optional_f64_param(p, "new_price")?),
+        "new_price" => |p: &Value| optional_f64_param(p, "new_price"),
         "sku_id" => |p: &Value| optional_string_param(p, "sku_id"),
     }
 );
@@ -544,7 +546,7 @@ deferred_coordination_skill!(
     defaults {
         "platform" => |p: &Value| string_param(p, "platform").map(Some),
         "product_id" => |p: &Value| string_param(p, "product_id").map(Some),
-        "quantity" => |p: &Value| Ok(optional_i64_param(p, "quantity")?),
+        "quantity" => |p: &Value| optional_i64_param(p, "quantity"),
         "sku_id" => |p: &Value| optional_string_param(p, "sku_id"),
     }
 );
