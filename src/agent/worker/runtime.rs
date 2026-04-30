@@ -10,10 +10,10 @@ use crate::{
         messaging::{MessageRx, MessageTx},
         protocol::{AgentId, Message, MessageId, Payload, TaskId, WorkerId},
     },
-    roles::{RoleProfile, RolePromptBuilder, RolePromptInput},
+    roles::{RoleProfile, RolePromptBuilder, RolePromptInput, RoleSkillCatalog},
     skills::{
         SkillContext, SkillExecutionResult, SkillExecutionStatus, SkillExecutor, SkillExecutorSet,
-        SkillRequest,
+        SkillId, SkillRequest,
     },
 };
 
@@ -353,6 +353,18 @@ impl Worker {
         let mut results = Vec::new();
         for (index, request) in requests.into_iter().enumerate() {
             let request_id = format!("{}-skill-{}", task.id, index + 1);
+            if !RoleSkillCatalog::staged().can_role_use_skill(&self.role, &request.skill_id) {
+                self.memory.push_progress(format!(
+                    "skill {} rejected for role {}",
+                    request.skill_id, self.role.runtime_role
+                ));
+                results.push(skill_not_allowed_result(
+                    request_id,
+                    request.skill_id,
+                    &self.role.runtime_role,
+                ));
+                continue;
+            }
             let context = build_skill_context(&self.id, &self.role, task, &request, &request_id);
             let runtime_request = SkillRequest::new(request_id, request.skill_id, request.input)
                 .with_context(context);
@@ -368,6 +380,24 @@ impl Worker {
         if let Ok(serialized) = serde_json::to_string(&results) {
             self.memory.set_state("last_skill_results", serialized);
         }
+    }
+}
+
+fn skill_not_allowed_result(
+    request_id: String,
+    skill_id: String,
+    runtime_role: &str,
+) -> SkillExecutionResult {
+    SkillExecutionResult {
+        request_id,
+        skill_id: SkillId::new(skill_id.clone()),
+        status: SkillExecutionStatus::ValidationError,
+        output: None,
+        summary: None,
+        metadata: serde_json::Map::new(),
+        error: Some(format!(
+            "skill '{skill_id}' is not allowed for role '{runtime_role}'"
+        )),
     }
 }
 

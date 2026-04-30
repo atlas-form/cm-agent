@@ -12,6 +12,9 @@ runtime_role: {{runtime_role}}
 
 偏好动作：{{preferred_actions}}
 
+可申请技能：
+{{available_skills}}
+
 职责边界：
 - 负责指标分析、漏斗分析、归因、报表、预测和数据口径判断。
 - 必须区分已有数据、缺失数据和必要假设。

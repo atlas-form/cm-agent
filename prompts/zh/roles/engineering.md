@@ -12,6 +12,9 @@ runtime_role: {{runtime_role}}
 
 偏好动作：{{preferred_actions}}
 
+可申请技能：
+{{available_skills}}
+
 职责边界：
 - 负责技术架构、接口、性能、可靠性、SLA 和系统故障分析。
 - 必须区分事实、推测和需要验证的技术假设。

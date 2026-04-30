@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::{
     agent_utils::prompt::Prompt,
     core::protocol::TaskId,
-    roles::{RoleContribution, RoleProfile},
+    roles::{RoleContribution, RoleProfile, RoleSkillCatalog},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +100,10 @@ impl RolePromptBuilder {
             ),
             ("preferred_actions", role_actions(role)),
             (
+                "available_skills",
+                RoleSkillCatalog::staged().format_for_prompt(role),
+            ),
+            (
                 "task",
                 if task.trim().is_empty() {
                     "none".to_string()
@@ -185,6 +189,8 @@ mod tests {
         assert!(prompt.contains("数据分析师"));
         assert!(prompt.contains("runtime_role: data"));
         assert!(prompt.contains("prompt_source: prompts/zh/roles/data.md"));
+        assert!(prompt.contains("可申请技能"));
+        assert!(prompt.contains("data_funnel_analysis"));
         assert!(prompt.contains("分析转化率下降"));
     }
 
