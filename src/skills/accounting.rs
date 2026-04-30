@@ -51,6 +51,17 @@ pub fn specs() -> Vec<SkillSpec> {
             ],
         ),
         spec(
+            "accounting_budget_plan",
+            "预算编制",
+            "根据目标GMV、利润率和增长假设编制月度预算计划",
+            vec![
+                field("target_gmv", "number", "目标GMV（元），默认500000", false),
+                field("target_margin", "number", "目标利润率%，默认15", false),
+                field("month", "string", "预算月份，默认下月", false),
+                field("growth_rate", "number", "目标增长率%，默认20", false),
+            ],
+        ),
+        spec(
             "accounting_break_even_calc",
             "盈亏平衡分析",
             "计算盈亏平衡点、贡献利润率和价格×销量敏感性矩阵",
@@ -63,6 +74,39 @@ pub fn specs() -> Vec<SkillSpec> {
                     false,
                 ),
                 field("selling_price", "number", "单品售价，默认100", false),
+            ],
+        ),
+        spec(
+            "accounting_compliance_check",
+            "合规检查",
+            "检查月营收、纳税类型、开票率和现金收款占比的财税风险",
+            vec![
+                field("monthly_revenue", "number", "月营收（元）", false),
+                field("tax_type", "string", "纳税类型：小规模/一般纳税人", false),
+                field("invoice_rate", "number", "开票率%，默认80", false),
+                field("cash_ratio", "number", "现金收款占比%，默认10", false),
+            ],
+        ),
+        spec(
+            "accounting_pl_statement",
+            "完整利润表",
+            "生成GMV到税后净利润的多层级P&L利润表",
+            vec![
+                field("gmv", "number", "GMV（元）", false),
+                field("ad_spend", "number", "广告投放费", false),
+                field("orders", "number", "订单量", false),
+                field("days", "integer", "统计天数，默认30", false),
+                field("cogs_rate", "number", "商品成本率%，默认40", false),
+                field("variable_cost_rate", "number", "变动成本率%，默认10", false),
+                field(
+                    "fixed_costs",
+                    "number",
+                    "固定成本，不填按净营收3%估算",
+                    false,
+                ),
+                field("tax_rate", "number", "所得税率%，默认25", false),
+                field("depreciation", "number", "折旧摊销，默认0", false),
+                field("refund_rate", "number", "退款率%，默认3", false),
             ],
         ),
         spec(
@@ -147,6 +191,42 @@ pub fn specs() -> Vec<SkillSpec> {
                 ),
             ],
         ),
+        spec(
+            "accounting_cash_flow_forecast",
+            "现金流预测",
+            "生成3个月经营、投资、筹资现金流滚动预测",
+            vec![
+                field("base_gmv", "number", "基期月GMV，默认500000", false),
+                field(
+                    "base_ad_spend",
+                    "number",
+                    "基期月广告费，默认GMV 10%",
+                    false,
+                ),
+                field(
+                    "growth_assumptions",
+                    "array<number>",
+                    "3个月GMV增长假设%，默认[5,8,12]",
+                    false,
+                ),
+                field("capex", "number", "月度资本性支出，默认0", false),
+                field("loan_repayment", "number", "月度还款，默认0", false),
+                field("opening_cash", "number", "期初现金余额，默认0", false),
+                field("days", "integer", "基期统计天数，默认30", false),
+            ],
+        ),
+        spec(
+            "accounting_financial_narrative",
+            "财务健康诊断",
+            "基于P&L关键指标生成确定性财务健康评级、风险识别和改善路径",
+            vec![
+                field("gmv", "number", "GMV（元），默认500000", false),
+                field("ad_spend", "number", "广告投放费，默认GMV 10%", false),
+                field("orders", "number", "订单量，默认GMV/150", false),
+                field("days", "integer", "统计天数，默认30", false),
+                field("context", "string", "额外背景信息", false),
+            ],
+        ),
     ]
 }
 
@@ -159,10 +239,15 @@ pub async fn execute(
         "accounting_cost_calc" => cost_calc(&input),
         "accounting_profit_analysis" => profit_analysis(&input),
         "accounting_roi_calc" => roi_calc(&input),
+        "accounting_budget_plan" => budget_plan(&input),
         "accounting_break_even_calc" => break_even_calc(&input),
+        "accounting_compliance_check" => compliance_check(&input),
+        "accounting_pl_statement" => pl_statement(&input),
         "accounting_budget_vs_actual" => budget_vs_actual(&input),
         "accounting_gmv_waterfall" => gmv_waterfall(&input),
         "accounting_scenario_analysis" => scenario_analysis(&input),
+        "accounting_cash_flow_forecast" => cash_flow_forecast(&input),
+        "accounting_financial_narrative" => financial_narrative(&input),
         other => return Err(invalid_input(format!("unknown accounting skill: {other}"))),
     };
     Ok(outcome(value))
@@ -314,6 +399,52 @@ fn roi_calc(input: &Value) -> Value {
     })
 }
 
+fn budget_plan(input: &Value) -> Value {
+    let month = string(input, "month", "下月");
+    let growth_rate = num(input, "growth_rate", 20.0);
+    let target_gmv = num(input, "target_gmv", 500_000.0).max(0.0);
+    let target_margin = num(input, "target_margin", 15.0).max(0.0);
+    let target_profit = round2(target_gmv * target_margin / 100.0);
+    let items = vec![
+        ("采购成本", 0.40),
+        ("物流费用", 0.08),
+        ("平台佣金", 0.05),
+        ("广告投放", 0.12),
+        ("人力成本", 0.10),
+        ("包装耗材", 0.03),
+        ("其他费用", 0.02),
+    ];
+    let budget_items: Vec<_> = items
+        .iter()
+        .map(|(name, ratio)| {
+            json!({
+                "科目": name,
+                "预算金额": currency(target_gmv * ratio),
+                "占GMV": percent(ratio * 100.0, 1),
+            })
+        })
+        .collect();
+    let total_cost_rate: f64 = items.iter().map(|(_, ratio)| ratio).sum();
+    let total_budget = round2(target_gmv * total_cost_rate);
+    let planned_profit = round2(target_gmv - total_budget);
+
+    json!({
+        "has_data": true,
+        "数据来源": if input.get("target_gmv").is_some() { "用户指定目标" } else { "默认目标（纯计算版本未读取历史数据）" },
+        "预算月份": month,
+        "目标增长率": signed_percent(growth_rate, 1),
+        "目标GMV": currency(target_gmv),
+        "目标利润": currency(target_profit),
+        "预算明细": budget_items,
+        "预算汇总": {
+            "总预算成本": currency(total_budget),
+            "计划利润": currency(planned_profit),
+            "计划利润率": percent(pct(planned_profit, target_gmv), 1),
+            "目标达成": if planned_profit >= target_profit { "满足目标利润率" } else { "低于目标利润率，需压缩费用或提高毛利" },
+        },
+    })
+}
+
 fn break_even_calc(input: &Value) -> Value {
     let price = num(input, "selling_price", 100.0);
     let unit_var = num(input, "unit_variable_cost", round2(price * 0.55));
@@ -369,6 +500,135 @@ fn break_even_calc(input: &Value) -> Value {
         },
         "敏感性分析(利润矩阵)": sensitivity,
         "说明": "✓=盈利 ✗=亏损",
+    })
+}
+
+fn compliance_check(input: &Value) -> Value {
+    let revenue = num(input, "monthly_revenue", 0.0);
+    if revenue <= 0.0 {
+        return json!({
+            "has_data": false,
+            "提示": "请传入 monthly_revenue；纯计算版本不会自动读取店铺营收。",
+        });
+    }
+    let tax_type = string(input, "tax_type", "小规模");
+    let invoice_rate = num(input, "invoice_rate", 80.0);
+    let cash_ratio = num(input, "cash_ratio", 10.0);
+    let mut risks = Vec::new();
+    if tax_type == "小规模" && revenue * 12.0 > 5_000_000.0 {
+        risks.push(json!({"风险": "年化营收超500万需转为一般纳税人", "等级": "高", "建议": "提前完成纳税人身份切换和税负测算"}));
+    }
+    if invoice_rate < 70.0 {
+        risks.push(
+            json!({"风险": "开票率偏低", "等级": "中", "建议": "规范开票流程，补齐交易凭证"}),
+        );
+    }
+    if cash_ratio > 30.0 {
+        risks.push(
+            json!({"风险": "现金收款占比过高", "等级": "中", "建议": "提高线上支付占比并保留流水"}),
+        );
+    }
+    let vat_rate = if tax_type == "一般纳税人" {
+        0.13
+    } else {
+        0.03
+    };
+    let vat = round2(revenue * vat_rate);
+    let surcharge = round2(vat * 0.12);
+    let income_tax = round2(revenue * 0.05 * 0.25);
+    json!({
+        "has_data": true,
+        "数据来源": "用户提供",
+        "月营收": currency(revenue),
+        "纳税类型": tax_type,
+        "预估税额": {
+            "增值税": currency(vat),
+            "附加税": currency(surcharge),
+            "企业所得税": currency(income_tax),
+            "合计": currency(vat + surcharge + income_tax),
+        },
+        "合规检查": {
+            "开票率": percent(invoice_rate, 1),
+            "现金占比": percent(cash_ratio, 1),
+            "风险点数": risks.len(),
+        },
+        "风险详情": if risks.is_empty() { vec![json!({"提示": "暂未发现合规风险"})] } else { risks },
+        "建议": ["按月申报纳税", "保留交易凭证和平台流水", "每月完成收入、发票、回款三方核对"],
+    })
+}
+
+fn pl_statement(input: &Value) -> Value {
+    let gmv = num(input, "gmv", 0.0);
+    if gmv <= 0.0 {
+        return json!({
+            "has_data": false,
+            "提示": "请传入 gmv；纯计算版本不会自动读取店铺数据。",
+        });
+    }
+    let days = num(input, "days", 30.0).round();
+    let ad_spend = num(input, "ad_spend", 0.0);
+    let orders = num(input, "orders", 0.0);
+    let refund_rate = num(input, "refund_rate", 3.0) / 100.0;
+    let cogs_rate = num(input, "cogs_rate", 40.0) / 100.0;
+    let variable_rate = num(input, "variable_cost_rate", 10.0) / 100.0;
+    let tax_rate = num(input, "tax_rate", 25.0) / 100.0;
+    let depreciation = num(input, "depreciation", 0.0);
+
+    let refund = round2(gmv * refund_rate);
+    let net_revenue = round2(gmv - refund);
+    let cogs = round2(net_revenue * cogs_rate);
+    let gross_profit = round2(net_revenue - cogs);
+    let variable_costs = round2(net_revenue * variable_rate);
+    let platform_fee = round2(gmv * 0.05);
+    let contribution = round2(gross_profit - variable_costs - platform_fee - ad_spend);
+    let fixed_costs = if input.get("fixed_costs").is_some() {
+        num(input, "fixed_costs", 0.0)
+    } else {
+        round2(net_revenue * 0.03)
+    };
+    let ebitda = round2(contribution - fixed_costs);
+    let ebit = round2(ebitda - depreciation);
+    let tax = round2((ebit * tax_rate).max(0.0));
+    let net_profit = round2(ebit - tax);
+    let gross_margin = pct(gross_profit, net_revenue);
+    let cm_rate = pct(contribution, net_revenue);
+    let net_margin = pct(net_profit, net_revenue);
+
+    json!({
+        "has_data": true,
+        "统计周期": format!("最近{}天", days),
+        "数据来源": "用户提供 + 参数估算",
+        "利润表": {
+            "① GMV（总销售额）": currency(gmv),
+            "  (-) 退款": currency(refund),
+            "② 净营收": currency(net_revenue),
+            "  (-) 商品成本（COGS）": currency(cogs),
+            "③ 毛利润": currency(gross_profit),
+            "   毛利率": percent(gross_margin, 2),
+            "  (-) 物流/包装（变动）": currency(variable_costs),
+            "  (-) 平台佣金": currency(platform_fee),
+            "  (-) 广告投放": currency(ad_spend),
+            "④ 贡献利润（CM）": currency(contribution),
+            "   贡献利润率": percent(cm_rate, 2),
+            "  (-) 固定成本（人工/租金等）": currency(fixed_costs),
+            "⑤ EBITDA": currency(ebitda),
+            "  (-) 折旧摊销": currency(depreciation),
+            "⑥ EBIT（税前利润）": currency(ebit),
+            "  (-) 所得税": currency(tax),
+            "⑦ 税后净利润": currency(net_profit),
+            "   净利率": percent(net_margin, 2),
+        },
+        "关键运营指标": {
+            "订单量": orders.round() as i64,
+            "客单价(AOV)": if orders > 0.0 { json!(currency(gmv / orders)) } else { json!("N/A") },
+            "退款率": percent(refund_rate * 100.0, 2),
+            "广告ROI": if ad_spend > 0.0 { json!(round2(gmv / ad_spend)) } else { json!("无广告数据") },
+        },
+        "健康度评估": {
+            "毛利率": if gross_margin > 50.0 { "优秀" } else if gross_margin > 30.0 { "正常" } else { "偏低" },
+            "贡献利润率": if cm_rate > 25.0 { "优秀" } else if cm_rate > 10.0 { "正常" } else { "偏低" },
+            "净利率": if net_margin > 15.0 { "优秀" } else if net_margin > 5.0 { "正常" } else if net_margin < 0.0 { "亏损" } else { "偏低" },
+        },
     })
 }
 
@@ -457,6 +717,149 @@ fn budget_vs_actual(input: &Value) -> Value {
         "GMV完成率": percent(gmv_ach * 100.0, 1),
         "预算vs实际对比": variance_table,
         "风险项": if risks.is_empty() { vec!["各科目执行符合预算，无重大风险".to_owned()] } else { risks },
+    })
+}
+
+fn cash_flow_forecast(input: &Value) -> Value {
+    let days = num(input, "days", 30.0).max(1.0);
+    let base_gmv = num(input, "base_gmv", 500_000.0).max(0.0);
+    let base_ad = num(input, "base_ad_spend", round2(base_gmv * 0.10));
+    let capex = num(input, "capex", 0.0);
+    let loan_repayment = num(input, "loan_repayment", 0.0);
+    let opening_cash = num(input, "opening_cash", 0.0);
+    let mut growth = nums(input, "growth_assumptions");
+    if growth.len() < 3 {
+        growth.extend([5.0, 8.0, 12.0]);
+        growth.truncate(3);
+    }
+    let factor = 30.0 / days;
+    let monthly_gmv = base_gmv * factor;
+    let monthly_ad = base_ad * factor;
+    let labels = ["第1个月", "第2个月", "第3个月"];
+    let mut running_cash = opening_cash;
+    let mut forecast = Vec::new();
+    let mut total_net_cf = 0.0;
+    for (idx, growth_pct) in growth.iter().take(3).enumerate() {
+        let multiplier = (1.0 + growth_pct / 100.0).powi((idx + 1) as i32);
+        let gmv = round2(monthly_gmv * multiplier);
+        let ad = round2(monthly_ad * multiplier);
+        let refund = round2(gmv * 0.03);
+        let cash_in = round2(gmv - refund);
+        let cogs = round2(gmv * 0.40);
+        let logistics = round2(gmv * 0.08);
+        let platform = round2(gmv * 0.05);
+        let opex = round2(cash_in * 0.10);
+        let tax = round2(cash_in * 0.03);
+        let operating_cf = round2(cash_in - cogs - logistics - platform - ad - opex - tax);
+        let investing_cf = round2(-capex);
+        let financing_cf = round2(-loan_repayment);
+        let net_cf = round2(operating_cf + investing_cf + financing_cf);
+        running_cash = round2(running_cash + net_cf);
+        total_net_cf += net_cf;
+        forecast.push(json!({
+            "月份": labels[idx],
+            "GMV预测": currency(gmv),
+            "增长假设": signed_percent(*growth_pct, 1),
+            "经营现金流入": currency(cash_in),
+            "经营现金流出明细": {
+                "商品成本": currency(cogs),
+                "物流费": currency(logistics),
+                "平台佣金": currency(platform),
+                "广告投放": currency(ad),
+                "运营费用": currency(opex),
+                "税费": currency(tax),
+            },
+            "经营现金流净额": currency(operating_cf),
+            "投资现金流": currency(investing_cf),
+            "筹资现金流": currency(financing_cf),
+            "月净现金流": currency(net_cf),
+            "期末现金余额": currency(running_cash),
+            "经营现金流状态": if operating_cf > 0.0 { "正常" } else { "预警" },
+        }));
+    }
+    let risk_tips: Vec<String> = forecast
+        .iter()
+        .filter(|m| m["经营现金流状态"] == "预警")
+        .map(|m| {
+            format!(
+                "{}经营现金流为负，需关注资金缺口",
+                m["月份"].as_str().unwrap_or("")
+            )
+        })
+        .collect();
+    json!({
+        "has_data": true,
+        "数据来源": if input.get("base_gmv").is_some() { "用户提供基期数据 + 增长假设" } else { "默认基期数据 + 增长假设" },
+        "基期月GMV": currency(monthly_gmv),
+        "期初现金余额": currency(opening_cash),
+        "3个月现金流预测": forecast,
+        "3个月累计净现金流": currency(total_net_cf),
+        "预测说明": "基于固定成本率和增长假设的确定性滚动预测；未调用外部数据或LLM。",
+        "风险提示": if risk_tips.is_empty() { vec!["未发现明显资金缺口".to_owned()] } else { risk_tips },
+    })
+}
+
+fn financial_narrative(input: &Value) -> Value {
+    let days = num(input, "days", 30.0).round();
+    let context = string(input, "context", "");
+    let gmv = num(input, "gmv", 500_000.0).max(0.0);
+    let ad_spend = num(input, "ad_spend", round2(gmv * 0.10));
+    let orders = num(input, "orders", (gmv / 150.0).round());
+    let net_revenue = round2(gmv * 0.97);
+    let cogs = round2(net_revenue * 0.40);
+    let gross_profit = round2(net_revenue - cogs);
+    let contribution = round2(gross_profit - net_revenue * 0.10 - gmv * 0.05 - ad_spend);
+    let net_profit = round2(contribution - net_revenue * 0.03);
+    let gross_margin = pct(gross_profit, net_revenue);
+    let cm_rate = pct(contribution, net_revenue);
+    let net_margin = pct(net_profit, net_revenue);
+    let ad_roi = if ad_spend > 0.0 {
+        round2(gmv / ad_spend)
+    } else {
+        0.0
+    };
+    let rating = if net_margin >= 15.0 && ad_roi >= 4.0 {
+        "A"
+    } else if net_margin >= 5.0 && ad_roi >= 2.0 {
+        "B"
+    } else if net_margin >= 0.0 {
+        "C"
+    } else {
+        "D"
+    };
+    let mut risks = Vec::new();
+    if gross_margin < 30.0 {
+        risks.push("毛利率偏低，需优化采购成本或价格带");
+    }
+    if ad_spend > 0.0 && ad_roi < 2.0 {
+        risks.push("广告ROI偏低，投放效率拖累利润");
+    }
+    if net_margin < 5.0 {
+        risks.push("净利率偏低，抗促销和退款波动能力弱");
+    }
+    json!({
+        "has_data": true,
+        "统计周期": format!("近{}天", days),
+        "数据来源": if input.get("gmv").is_some() { "用户提供 + 确定性诊断" } else { "默认样例 + 确定性诊断" },
+        "背景": if context.is_empty() { "无额外背景" } else { context.as_str() },
+        "关键财务指标": {
+            "GMV": currency(gmv),
+            "净营收": currency(net_revenue),
+            "毛利率": percent(gross_margin, 2),
+            "贡献利润率": percent(cm_rate, 2),
+            "净利率": percent(net_margin, 2),
+            "广告ROI": if ad_spend > 0.0 { json!(ad_roi) } else { json!("无广告数据") },
+            "客单价": if orders > 0.0 { json!(currency(gmv / orders)) } else { json!("N/A") },
+            "退款率": "3.00%",
+        },
+        "财务健康评级": rating,
+        "诊断摘要": format!("当前评级为{rating}；毛利率{}，净利率{}，广告ROI{}。", percent(gross_margin, 1), percent(net_margin, 1), if ad_spend > 0.0 { ad_roi.to_string() } else { "无广告数据".to_owned() }),
+        "主要风险": if risks.is_empty() { vec!["暂未发现重大财务风险"] } else { risks },
+        "改善路径": [
+            "优先跟踪GMV、毛利率、广告ROI、退款率四项日指标",
+            "将广告预算向ROI前40%的计划集中，低效素材48小时内下线",
+            "复盘高退款SKU并同步调整详情页承诺、客服话术和质检标准"
+        ],
     })
 }
 
@@ -742,6 +1145,22 @@ fn num(input: &Value, key: &str, default: f64) -> f64 {
         .or_else(|| input[key].as_i64().map(|v| v as f64))
         .or_else(|| input[key].as_u64().map(|v| v as f64))
         .unwrap_or(default)
+}
+
+fn nums(input: &Value, key: &str) -> Vec<f64> {
+    input[key]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| {
+                    v.as_f64()
+                        .or_else(|| v.as_i64().map(|n| n as f64))
+                        .or_else(|| v.as_u64().map(|n| n as f64))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn string(input: &Value, key: &str, default: &str) -> String {

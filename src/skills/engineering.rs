@@ -3,7 +3,8 @@ use serde_json::{Value, json};
 
 use crate::skills::{
     Skill, SkillCategory, SkillContext, SkillInputField, SkillOutcome, SkillPriority, SkillResult,
-    SkillSpec, object_params, optional_f64_param, optional_i64_param, optional_string_param,
+    SkillSpec, object_params, optional_bool_param, optional_f64_param, optional_i64_param,
+    optional_string_param, optional_string_vec_param, string_param,
 };
 
 fn category() -> SkillCategory {
@@ -11,7 +12,156 @@ fn category() -> SkillCategory {
 }
 
 pub fn specs() -> Vec<SkillSpec> {
-    vec![engineering_sla_monitor_spec()]
+    vec![
+        engineering_arch_review_spec(),
+        engineering_bug_analysis_spec(),
+        engineering_perf_optimize_spec(),
+        engineering_tech_selection_spec(),
+        engineering_system_check_spec(),
+        engineering_sla_monitor_spec(),
+    ]
+}
+
+pub fn engineering_arch_review_spec() -> SkillSpec {
+    deferred_spec(
+        "engineering_arch_review",
+        "架构评估",
+        "AI深度评审系统架构，输出5维评分/核心风险/分级改造方案/大促备战清单",
+        vec![
+            SkillInputField::required(
+                "system_type",
+                "系统类型：电商平台/ERP/CRM/数据平台/小程序",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional("daily_orders", "日均订单量", json!({"type": "integer"})),
+            SkillInputField::optional(
+                "tech_stack",
+                "技术栈列表（如 Python/MySQL/Redis/Nginx）",
+                json!({"type": "array", "items": {"type": "string"}}),
+            ),
+            SkillInputField::optional(
+                "pain_points",
+                "当前主要痛点",
+                json!({"type": "array", "items": {"type": "string"}}),
+            ),
+            SkillInputField::optional(
+                "current_metrics",
+                "当前系统指标，如 {响应时间: '200ms', QPS: 500}",
+                json!({"type": "object"}),
+            ),
+        ],
+    )
+}
+
+pub fn engineering_bug_analysis_spec() -> SkillSpec {
+    deferred_spec(
+        "engineering_bug_analysis",
+        "Bug排查方案",
+        "AI深度诊断Bug，输出根因分析/10步排查流程/修复代码示例/临时止血方案/预防措施",
+        vec![
+            SkillInputField::required(
+                "error_type",
+                "错误类型：接口超时/数据异常/页面白屏/支付失败/库存不一致/OOM/死锁等",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "error_message",
+                "完整错误信息或日志片段",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "frequency",
+                "频率：偶发/频繁/必现",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "tech_stack",
+                "技术栈，如 Python/FastAPI/MySQL",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "context",
+                "发生场景（如大促/特定操作/定时任务）",
+                json!({"type": "string"}),
+            ),
+        ],
+    )
+}
+
+pub fn engineering_perf_optimize_spec() -> SkillSpec {
+    deferred_spec(
+        "engineering_perf_optimize",
+        "性能优化方案",
+        "AI生成具体性能优化方案，含代码示例/配置参数/分阶段实施计划/压测脚本",
+        vec![
+            SkillInputField::required(
+                "bottleneck",
+                "瓶颈类型：数据库/接口/前端/缓存/并发/网络",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional("current_qps", "当前QPS/TPS", json!({"type": "number"})),
+            SkillInputField::optional("target_qps", "目标QPS/TPS", json!({"type": "number"})),
+            SkillInputField::optional("tech_stack", "技术栈", json!({"type": "string"})),
+            SkillInputField::optional(
+                "metrics",
+                "当前系统指标，如 {P99延迟: '1200ms', CPU使用率: '85%'}",
+                json!({"type": "object"}),
+            ),
+        ],
+    )
+}
+
+pub fn engineering_tech_selection_spec() -> SkillSpec {
+    deferred_spec(
+        "engineering_tech_selection",
+        "技术选型",
+        "AI生成技术选型深度报告，含真实性能数据对比/迁移方案/POC验证清单",
+        vec![
+            SkillInputField::required(
+                "domain",
+                "选型领域：Web框架/数据库/消息队列/搜索引擎/缓存/容器编排/监控",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "requirements",
+                "核心需求列表",
+                json!({"type": "array", "items": {"type": "string"}}),
+            ),
+            SkillInputField::optional(
+                "constraints",
+                "约束条件（预算/团队技能/合规/时间）",
+                json!({"type": "array", "items": {"type": "string"}}),
+            ),
+            SkillInputField::optional("team_size", "团队规模", json!({"type": "integer"})),
+            SkillInputField::optional(
+                "current_stack",
+                "现有技术栈（迁移评估用）",
+                json!({"type": "string"}),
+            ),
+        ],
+    )
+}
+
+pub fn engineering_system_check_spec() -> SkillSpec {
+    SkillSpec::new(
+        "engineering_system_check",
+        "平台接口健康检查",
+        "检查用户已配置的电商平台API连接状态，诊断同步和接口问题",
+    )
+    .with_category(category())
+    .with_priority(SkillPriority::High)
+    .with_input(SkillInputField::optional(
+        "test_live",
+        "是否实际调用平台API测试连通性（默认仅检查配置）",
+        json!({"type": "boolean"}),
+    ))
+    .with_input(SkillInputField::optional(
+        "platform",
+        "指定平台（留空则检查全部已配置平台）",
+        json!({"type": "string"}),
+    ))
+    .with_tag("deferred")
+    .with_tag("pending_approval")
 }
 
 pub fn engineering_sla_monitor_spec() -> SkillSpec {
@@ -82,6 +232,162 @@ pub fn engineering_sla_monitor_spec() -> SkillSpec {
 
 pub struct EngineeringSlaMonitor {
     spec: SkillSpec,
+}
+
+fn deferred_spec(
+    id: &str,
+    name: &str,
+    description: &str,
+    inputs: Vec<SkillInputField>,
+) -> SkillSpec {
+    inputs.into_iter().fold(
+        SkillSpec::new(id, name, description)
+            .with_category(category())
+            .with_priority(SkillPriority::High)
+            .with_tag("deferred")
+            .with_tag("analysis_engine"),
+        SkillSpec::with_input,
+    )
+}
+
+macro_rules! deferred_engineering_skill {
+    ($type_name:ident, $spec_fn:ident, required [$($required:literal),*], defaults {$($key:literal => $value:expr),* $(,)?}, deps [$($dep:literal),* $(,)?]) => {
+        pub struct $type_name {
+            spec: SkillSpec,
+        }
+
+        impl $type_name {
+            pub fn new() -> Self {
+                Self { spec: $spec_fn() }
+            }
+        }
+
+        impl Default for $type_name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        #[async_trait]
+        impl Skill for $type_name {
+            fn spec(&self) -> &SkillSpec {
+                &self.spec
+            }
+
+            async fn run(&self, params: Value, _context: SkillContext) -> SkillResult {
+                object_params(&params)?;
+                $(let _ = string_param(&params, $required)?;)*
+                let mut normalized = serde_json::Map::new();
+                $(normalized.insert($key.to_owned(), json!($value(&params)?));)*
+                Ok(SkillOutcome::new(json!({
+                    "status": "deferred",
+                    "deferred_reason": "工程分析技能需要技术上下文、搜索资料或分析引擎接入",
+                    "skill": self.spec.id,
+                    "normalized_inputs": normalized,
+                    "deferred_dependencies": [$($dep),*],
+                    "expected_outputs": ["诊断摘要", "风险分级", "实施步骤", "验证清单"]
+                })).with_summary("工程技能骨架已返回"))
+            }
+        }
+    };
+}
+
+deferred_engineering_skill!(
+    EngineeringArchReview,
+    engineering_arch_review_spec,
+    required ["system_type"],
+    defaults {
+        "system_type" => |p: &Value| string_param(p, "system_type").map(Some),
+        "daily_orders" => |p: &Value| Ok(optional_i64_param(p, "daily_orders")?.unwrap_or(1000)),
+        "tech_stack" => |p: &Value| Ok(optional_string_vec_param(p, "tech_stack")?.unwrap_or_default()),
+        "pain_points" => |p: &Value| Ok(optional_string_vec_param(p, "pain_points")?.unwrap_or_default()),
+        "current_metrics" => |p: &Value| Ok(p.get("current_metrics").cloned().unwrap_or_else(|| json!({}))),
+    },
+    deps ["architecture_review_engine", "business_metrics"]
+);
+deferred_engineering_skill!(
+    EngineeringBugAnalysis,
+    engineering_bug_analysis_spec,
+    required ["error_type"],
+    defaults {
+        "error_type" => |p: &Value| string_param(p, "error_type").map(Some),
+        "error_message" => |p: &Value| optional_string_param(p, "error_message"),
+        "frequency" => |p: &Value| Ok(optional_string_param(p, "frequency")?.unwrap_or_else(|| "偶发".to_owned())),
+        "tech_stack" => |p: &Value| optional_string_param(p, "tech_stack"),
+        "context" => |p: &Value| optional_string_param(p, "context"),
+    },
+    deps ["debug_knowledge", "fresh_best_practices"]
+);
+deferred_engineering_skill!(
+    EngineeringPerfOptimize,
+    engineering_perf_optimize_spec,
+    required ["bottleneck"],
+    defaults {
+        "bottleneck" => |p: &Value| string_param(p, "bottleneck").map(Some),
+        "current_qps" => |p: &Value| Ok(optional_f64_param(p, "current_qps")?.unwrap_or(500.0)),
+        "target_qps" => |p: &Value| Ok(optional_f64_param(p, "target_qps")?.unwrap_or(2000.0)),
+        "tech_stack" => |p: &Value| optional_string_param(p, "tech_stack"),
+        "metrics" => |p: &Value| Ok(p.get("metrics").cloned().unwrap_or_else(|| json!({}))),
+    },
+    deps ["performance_plan_engine"]
+);
+deferred_engineering_skill!(
+    EngineeringTechSelection,
+    engineering_tech_selection_spec,
+    required ["domain"],
+    defaults {
+        "domain" => |p: &Value| string_param(p, "domain").map(Some),
+        "requirements" => |p: &Value| Ok(optional_string_vec_param(p, "requirements")?.unwrap_or_default()),
+        "constraints" => |p: &Value| Ok(optional_string_vec_param(p, "constraints")?.unwrap_or_default()),
+        "team_size" => |p: &Value| Ok(optional_i64_param(p, "team_size")?.unwrap_or(5)),
+        "current_stack" => |p: &Value| optional_string_param(p, "current_stack"),
+    },
+    deps ["fresh_benchmarks", "tech_selection_engine"]
+);
+
+pub struct EngineeringSystemCheck {
+    spec: SkillSpec,
+}
+
+impl EngineeringSystemCheck {
+    pub fn new() -> Self {
+        Self {
+            spec: engineering_system_check_spec(),
+        }
+    }
+}
+
+impl Default for EngineeringSystemCheck {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Skill for EngineeringSystemCheck {
+    fn spec(&self) -> &SkillSpec {
+        &self.spec
+    }
+
+    async fn run(&self, params: Value, _context: SkillContext) -> SkillResult {
+        object_params(&params)?;
+        let test_live = optional_bool_param(&params, "test_live")?.unwrap_or(false);
+        let platform = optional_string_param(&params, "platform")?;
+        let status = if test_live {
+            "pending_approval"
+        } else {
+            "deferred"
+        };
+        Ok(SkillOutcome::new(json!({
+            "status": status,
+            "approval_required": test_live,
+            "deferred_reason": if test_live { "实际调用平台API健康检查属于外部平台动作，需要显式审批和适配器接入" } else { "平台连接配置读取尚未接入Rust skill runtime" },
+            "skill": self.spec.id,
+            "platform": platform,
+            "planned_checks": ["凭证完整性", "连接配置", "最近同步状态", "错误码分布"],
+            "no_side_effects": true
+        })).with_summary("平台接口健康检查骨架已返回"))
+    }
 }
 
 impl EngineeringSlaMonitor {

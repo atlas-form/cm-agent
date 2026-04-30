@@ -3,8 +3,8 @@ use serde_json::{Value, json};
 
 use crate::skills::{
     Skill, SkillCategory, SkillContext, SkillError, SkillInputField, SkillOutcome, SkillPriority,
-    SkillResult, SkillSpec, object_params, optional_f64_param, optional_string_param,
-    optional_string_vec_param, string_param,
+    SkillResult, SkillSpec, object_params, optional_f64_param, optional_i64_param,
+    optional_string_param, optional_string_vec_param, string_param,
 };
 
 fn category() -> SkillCategory {
@@ -12,7 +12,81 @@ fn category() -> SkillCategory {
 }
 
 pub fn specs() -> Vec<SkillSpec> {
-    vec![web_title_seo_scorer_spec(), web_page_conversion_spec()]
+    vec![
+        web_seo_optimize_spec(),
+        web_title_generator_spec(),
+        web_page_conversion_spec(),
+        web_store_design_spec(),
+        web_keyword_research_spec(),
+        web_product_description_spec(),
+        web_title_seo_scorer_spec(),
+    ]
+}
+
+pub fn web_seo_optimize_spec() -> SkillSpec {
+    deferred_spec(
+        "web_seo_optimize",
+        "SEO优化方案",
+        "AI生成完整SEO方案（关键词矩阵/标题优化/内容改写清单/技术SEO检查/提排路径），\
+         自动关联真实商品和平台数据",
+        vec![
+            SkillInputField::optional(
+                "target_keywords",
+                "目标关键词列表（可从product_id自动生成）",
+                json!({"type": "array", "items": {"type": "string"}}),
+            ),
+            SkillInputField::optional(
+                "current_rank",
+                "当前排名（可选）",
+                json!({"type": "integer"}),
+            ),
+            SkillInputField::optional(
+                "product_id",
+                "商品ID，自动加载商品信息生成针对性SEO方案",
+                json!({"type": "integer"}),
+            ),
+            SkillInputField::optional(
+                "platform",
+                "平台：淘宝/京东/拼多多/抖音",
+                json!({"type": "string"}),
+            ),
+        ],
+    )
+}
+
+pub fn web_title_generator_spec() -> SkillSpec {
+    deferred_spec(
+        "web_title_generator",
+        "标题生成",
+        "根据商品信息生成多种风格的SEO友好标题；传入product_id可自动加载真实商品",
+        vec![
+            SkillInputField::optional(
+                "product_name",
+                "商品名称（可自动从product_id加载）",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "keywords",
+                "核心关键词（可从商品卖点自动生成）",
+                json!({"type": "array", "items": {"type": "string"}}),
+            ),
+            SkillInputField::optional(
+                "style",
+                "风格：营销型/信息型/品牌型",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "product_id",
+                "商品ID，用于自动加载商品信息",
+                json!({"type": "integer"}),
+            ),
+            SkillInputField::optional(
+                "platform",
+                "目标平台：淘宝/京东/拼多多/抖音",
+                json!({"type": "string"}),
+            ),
+        ],
+    )
 }
 
 pub fn web_title_seo_scorer_spec() -> SkillSpec {
@@ -213,6 +287,203 @@ pub fn web_page_conversion_spec() -> SkillSpec {
     ))
     .with_tag("deferred")
 }
+
+pub fn web_store_design_spec() -> SkillSpec {
+    deferred_spec(
+        "web_store_design",
+        "店铺装修方案",
+        "AI生成完整店铺装修设计方案（视觉定位/模块结构/尺寸规格/文案方向/素材清单/验收标准），\
+         基于店铺真实数据个性化定制",
+        vec![
+            SkillInputField::required(
+                "store_type",
+                "店铺类型：旗舰店/专营店/个人店",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional("category", "主营类目", json!({"type": "string"})),
+            SkillInputField::optional("platform", "平台", json!({"type": "string"})),
+            SkillInputField::optional("brand_tone", "品牌调性", json!({"type": "string"})),
+        ],
+    )
+}
+
+pub fn web_keyword_research_spec() -> SkillSpec {
+    deferred_spec(
+        "web_keyword_research",
+        "关键词研究",
+        "AI拓展关键词矩阵（核心词/长尾词/蓝海词/场景词），分析搜索意图、竞争度和出价策略，\
+         可自动关联真实商品",
+        vec![
+            SkillInputField::optional(
+                "seed_keyword",
+                "种子关键词（可从product_id自动提取）",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional("category", "商品类目", json!({"type": "string"})),
+            SkillInputField::optional(
+                "platform",
+                "平台：淘宝/京东/拼多多/抖音",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "product_id",
+                "商品ID，自动以商品名为种子词",
+                json!({"type": "integer"}),
+            ),
+        ],
+    )
+}
+
+pub fn web_product_description_spec() -> SkillSpec {
+    deferred_spec(
+        "web_product_description",
+        "详情页文案",
+        "生成完整的详情页营销文案（首屏卖点/痛点/解决方案/亮点/行动号召）；\
+         传入product_id自动加载商品信息",
+        vec![
+            SkillInputField::optional(
+                "product_name",
+                "商品名称（可从product_id自动加载）",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "product_id",
+                "商品ID，自动加载商品信息",
+                json!({"type": "integer"}),
+            ),
+            SkillInputField::optional(
+                "platform",
+                "目标平台：淘宝/京东/拼多多/抖音",
+                json!({"type": "string"}),
+            ),
+            SkillInputField::optional(
+                "style",
+                "文案风格：营销型/信息型/故事型",
+                json!({"type": "string"}),
+            ),
+        ],
+    )
+}
+
+fn deferred_spec(
+    id: &str,
+    name: &str,
+    description: &str,
+    inputs: Vec<SkillInputField>,
+) -> SkillSpec {
+    inputs.into_iter().fold(
+        SkillSpec::new(id, name, description)
+            .with_category(category())
+            .with_priority(SkillPriority::High)
+            .with_tag("deferred")
+            .with_tag("content_engine"),
+        SkillSpec::with_input,
+    )
+}
+
+macro_rules! deferred_web_skill {
+    ($type_name:ident, $spec_fn:ident, required [$($required:literal),*], defaults {$($key:literal => $value:expr),* $(,)?}, deps [$($dep:literal),* $(,)?]) => {
+        pub struct $type_name {
+            spec: SkillSpec,
+        }
+
+        impl $type_name {
+            pub fn new() -> Self {
+                Self { spec: $spec_fn() }
+            }
+        }
+
+        impl Default for $type_name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        #[async_trait]
+        impl Skill for $type_name {
+            fn spec(&self) -> &SkillSpec {
+                &self.spec
+            }
+
+            async fn run(&self, params: Value, _context: SkillContext) -> SkillResult {
+                object_params(&params)?;
+                $(let _ = string_param(&params, $required)?;)*
+                let mut normalized = serde_json::Map::new();
+                $(normalized.insert($key.to_owned(), json!($value(&params)?));)*
+                Ok(SkillOutcome::new(json!({
+                    "status": "deferred",
+                    "deferred_reason": "Web/SEO技能需要内容引擎、商品数据、搜索数据或店铺指标接入",
+                    "skill": self.spec.id,
+                    "normalized_inputs": normalized,
+                    "deferred_dependencies": [$($dep),*],
+                    "expected_outputs": ["关键词/内容策略", "页面结构建议", "实验清单", "复盘指标"]
+                })).with_summary("Web技能骨架已返回"))
+            }
+        }
+    };
+}
+
+deferred_web_skill!(
+    WebSeoOptimize,
+    web_seo_optimize_spec,
+    required [],
+    defaults {
+        "target_keywords" => |p: &Value| Ok(optional_string_vec_param(p, "target_keywords")?.unwrap_or_else(|| vec!["电商".to_owned()])),
+        "current_rank" => |p: &Value| Ok(optional_i64_param(p, "current_rank")?.unwrap_or(0)),
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+    },
+    deps ["content_engine", "product_profile", "fresh_search_data"]
+);
+deferred_web_skill!(
+    WebTitleGenerator,
+    web_title_generator_spec,
+    required [],
+    defaults {
+        "product_name" => |p: &Value| optional_string_param(p, "product_name"),
+        "keywords" => |p: &Value| Ok(optional_string_vec_param(p, "keywords")?.unwrap_or_default()),
+        "style" => |p: &Value| Ok(optional_string_param(p, "style")?.unwrap_or_else(|| "营销型".to_owned())),
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+    },
+    deps ["content_engine", "product_profile"]
+);
+deferred_web_skill!(
+    WebStoreDesign,
+    web_store_design_spec,
+    required ["store_type"],
+    defaults {
+        "store_type" => |p: &Value| string_param(p, "store_type").map(Some),
+        "category" => |p: &Value| Ok(optional_string_param(p, "category")?.unwrap_or_else(|| "通用".to_owned())),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+        "brand_tone" => |p: &Value| Ok(optional_string_param(p, "brand_tone")?.unwrap_or_else(|| "专业".to_owned())),
+    },
+    deps ["store_metrics", "design_engine"]
+);
+deferred_web_skill!(
+    WebKeywordResearch,
+    web_keyword_research_spec,
+    required [],
+    defaults {
+        "seed_keyword" => |p: &Value| optional_string_param(p, "seed_keyword"),
+        "category" => |p: &Value| Ok(optional_string_param(p, "category")?.unwrap_or_else(|| "通用".to_owned())),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+    },
+    deps ["fresh_search_data", "product_profile", "content_engine"]
+);
+deferred_web_skill!(
+    WebProductDescription,
+    web_product_description_spec,
+    required [],
+    defaults {
+        "product_name" => |p: &Value| optional_string_param(p, "product_name"),
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+        "style" => |p: &Value| Ok(optional_string_param(p, "style")?.unwrap_or_else(|| "营销型".to_owned())),
+    },
+    deps ["content_engine", "product_profile"]
+);
 
 pub struct WebPageConversion {
     spec: SkillSpec,

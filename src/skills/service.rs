@@ -39,11 +39,141 @@ fn outcome(output: Value, summary: impl Into<String>) -> SkillResult {
 
 pub fn specs() -> Vec<SkillSpec> {
     vec![
+        service_ticket_handler_spec(),
+        service_faq_playbook_spec(),
+        service_escalation_flow_spec(),
+        service_dsr_improvement_spec(),
         service_return_handler_spec(),
+        service_query_product_spec(),
         service_nps_analyzer_spec(),
         service_sentiment_analyzer_spec(),
         service_nps_driver_analysis_spec(),
     ]
+}
+
+pub fn service_ticket_handler_spec() -> SkillSpec {
+    deferred_spec(
+        "service_ticket_handler",
+        "工单处理",
+        "AI生成完整客服话术包（接单确认/安抚/解决方案/跟进/邀评），基于真实商品信息个性化",
+        vec![
+            SkillInputField::required(
+                "issue_type",
+                "问题类型：物流延迟/质量问题/退款退货/发错货/售后咨询/投诉",
+                string_schema(),
+            ),
+            SkillInputField::optional("customer_message", "客户原始消息", string_schema()),
+            SkillInputField::optional(
+                "customer_emotion",
+                "客户情绪：普通/焦虑/愤怒/满意",
+                string_schema(),
+            ),
+            SkillInputField::optional("platform", "平台：淘宝/京东/拼多多/抖音", string_schema()),
+            SkillInputField::optional(
+                "product_id",
+                "涉及商品ID（可选，自动加载商品信息定制话术）",
+                integer_schema(),
+            ),
+            SkillInputField::optional("order_no", "订单号（可选）", string_schema()),
+        ],
+    )
+}
+
+pub fn service_faq_playbook_spec() -> SkillSpec {
+    deferred_spec(
+        "service_faq_playbook",
+        "FAQ话术库",
+        "AI基于真实商品信息和店铺政策生成专属FAQ话术库，含简短版和详细版答案",
+        vec![
+            SkillInputField::optional(
+                "product_id",
+                "商品ID，自动加载商品信息生成专属FAQ",
+                integer_schema(),
+            ),
+            SkillInputField::optional(
+                "questions",
+                "需要生成答案的问题列表（留空则生成通用FAQ）",
+                string_array_schema(),
+            ),
+            SkillInputField::optional("platform", "平台：淘宝/京东/拼多多/抖音", string_schema()),
+            SkillInputField::optional(
+                "policies",
+                "店铺政策，如 {发货时效: '48小时', 退货政策: '7天无理由'}",
+                object_schema(),
+            ),
+        ],
+    )
+}
+
+pub fn service_escalation_flow_spec() -> SkillSpec {
+    deferred_spec(
+        "service_escalation_flow",
+        "升级流程",
+        "AI生成完整升级处理脚本，含主管接管话术/具体赔偿方案/纠纷预防/内部工单模板",
+        vec![
+            SkillInputField::required("issue_description", "问题描述", string_schema()),
+            SkillInputField::optional(
+                "customer_emotion",
+                "客户情绪：平静/不满/愤怒/威胁投诉",
+                string_schema(),
+            ),
+            SkillInputField::optional("previous_contacts", "此前联系次数", integer_schema()),
+            SkillInputField::optional("product_id", "涉及商品ID（可选）", integer_schema()),
+            SkillInputField::optional(
+                "customer_history",
+                "客户历史（高价值/新客/疑似羊毛党）",
+                string_schema(),
+            ),
+        ],
+    )
+}
+
+pub fn service_dsr_improvement_spec() -> SkillSpec {
+    SkillSpec::new(
+        "service_dsr_improvement",
+        "DSR提升方案",
+        "根据当前DSR评分（可自动从店铺数据加载），输出各维度提升方案",
+    )
+    .with_category(category())
+    .with_priority(SkillPriority::High)
+    .with_input(SkillInputField::optional(
+        "description_score",
+        "描述相符评分(1-5)；不填则自动加载",
+        number_schema(),
+    ))
+    .with_input(SkillInputField::optional(
+        "service_score",
+        "服务态度评分(1-5)；不填则自动加载",
+        number_schema(),
+    ))
+    .with_input(SkillInputField::optional(
+        "logistics_score",
+        "物流服务评分(1-5)；不填则自动加载",
+        number_schema(),
+    ))
+    .with_input(SkillInputField::optional(
+        "platform",
+        "平台：淘宝/京东/拼多多/抖音",
+        string_schema(),
+    ))
+    .with_tag("deterministic")
+}
+
+pub fn service_query_product_spec() -> SkillSpec {
+    deferred_spec(
+        "service_query_product",
+        "查询商品信息",
+        "根据商品ID或商品名查询真实商品信息，用于客服应答",
+        vec![
+            SkillInputField::optional("product_id", "商品ID", integer_schema()),
+            SkillInputField::optional(
+                "product_name",
+                "商品名称关键词（当ID不明时使用）",
+                string_schema(),
+            ),
+        ],
+    )
+    .with_tag("data_source")
 }
 
 pub fn service_return_handler_spec() -> SkillSpec {
@@ -156,6 +286,178 @@ impl Skill for ServiceReturnHandler {
 
         outcome(output, "退换货处理方案已生成")
     }
+}
+
+fn deferred_spec(
+    id: &str,
+    name: &str,
+    description: &str,
+    inputs: Vec<SkillInputField>,
+) -> SkillSpec {
+    inputs.into_iter().fold(
+        SkillSpec::new(id, name, description)
+            .with_category(category())
+            .with_priority(SkillPriority::High)
+            .with_tag("deferred"),
+        SkillSpec::with_input,
+    )
+}
+
+macro_rules! deferred_service_skill {
+    ($type_name:ident, $spec_fn:ident, required [$($required:literal),*], defaults {$($key:literal => $value:expr),* $(,)?}, deps [$($dep:literal),* $(,)?]) => {
+        pub struct $type_name {
+            spec: SkillSpec,
+        }
+
+        impl $type_name {
+            pub fn new() -> Self {
+                Self { spec: $spec_fn() }
+            }
+        }
+
+        impl Default for $type_name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        #[async_trait]
+        impl Skill for $type_name {
+            fn spec(&self) -> &SkillSpec {
+                &self.spec
+            }
+
+            async fn run(&self, params: Value, _context: SkillContext) -> SkillResult {
+                object_params(&params)?;
+                $(let _ = string_param(&params, $required)?;)*
+                let mut normalized = serde_json::Map::new();
+                $(normalized.insert($key.to_owned(), json!($value(&params)?));)*
+                outcome(json!({
+                    "status": "deferred",
+                    "deferred_reason": "客服技能需要商品数据、店铺政策或内容引擎接入",
+                    "skill": self.spec.id,
+                    "normalized_inputs": normalized,
+                    "deferred_dependencies": [$($dep),*],
+                    "expected_outputs": ["处理策略", "客服话术", "SLA/优先级", "复盘字段"]
+                }), "客服技能骨架已返回")
+            }
+        }
+    };
+}
+
+deferred_service_skill!(
+    ServiceTicketHandler,
+    service_ticket_handler_spec,
+    required ["issue_type"],
+    defaults {
+        "issue_type" => |p: &Value| string_param(p, "issue_type").map(Some),
+        "customer_message" => |p: &Value| optional_string_param(p, "customer_message"),
+        "customer_emotion" => |p: &Value| Ok(optional_string_param(p, "customer_emotion")?.unwrap_or_else(|| "普通".to_owned())),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "order_no" => |p: &Value| optional_string_param(p, "order_no"),
+    },
+    deps ["content_engine", "product_profile", "shop_policy"]
+);
+deferred_service_skill!(
+    ServiceFaqPlaybook,
+    service_faq_playbook_spec,
+    required [],
+    defaults {
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "questions" => |p: &Value| Ok(optional_string_vec_param(p, "questions")?.unwrap_or_else(default_faq_questions)),
+        "platform" => |p: &Value| Ok(optional_string_param(p, "platform")?.unwrap_or_else(|| "淘宝".to_owned())),
+        "policies" => |p: &Value| Ok(p.get("policies").cloned().unwrap_or_else(|| json!({}))),
+    },
+    deps ["content_engine", "product_profile", "shop_policy"]
+);
+deferred_service_skill!(
+    ServiceEscalationFlow,
+    service_escalation_flow_spec,
+    required ["issue_description"],
+    defaults {
+        "issue_description" => |p: &Value| string_param(p, "issue_description").map(Some),
+        "customer_emotion" => |p: &Value| Ok(optional_string_param(p, "customer_emotion")?.unwrap_or_else(|| "平静".to_owned())),
+        "previous_contacts" => |p: &Value| Ok(optional_i64_param(p, "previous_contacts")?.unwrap_or(0)),
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "customer_history" => |p: &Value| optional_string_param(p, "customer_history"),
+    },
+    deps ["content_engine", "product_profile"]
+);
+deferred_service_skill!(
+    ServiceQueryProduct,
+    service_query_product_spec,
+    required [],
+    defaults {
+        "product_id" => |p: &Value| optional_i64_param(p, "product_id"),
+        "product_name" => |p: &Value| optional_string_param(p, "product_name"),
+    },
+    deps ["product_database"]
+);
+
+pub struct ServiceDsrImprovement {
+    spec: SkillSpec,
+}
+
+impl ServiceDsrImprovement {
+    pub fn new() -> Self {
+        Self {
+            spec: service_dsr_improvement_spec(),
+        }
+    }
+}
+
+impl Default for ServiceDsrImprovement {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Skill for ServiceDsrImprovement {
+    fn spec(&self) -> &SkillSpec {
+        &self.spec
+    }
+
+    async fn run(&self, params: Value, _context: SkillContext) -> SkillResult {
+        object_params(&params)?;
+        let desc = optional_f64_param(&params, "description_score")?.unwrap_or(4.6);
+        let svc = optional_f64_param(&params, "service_score")?.unwrap_or(4.7);
+        let logi = optional_f64_param(&params, "logistics_score")?.unwrap_or(4.5);
+        let platform =
+            optional_string_param(&params, "platform")?.unwrap_or_else(|| "淘宝".to_owned());
+        let overall = round2((desc + svc + logi) / 3.0);
+        let lowest = [("描述相符", desc), ("服务态度", svc), ("物流服务", logi)]
+            .into_iter()
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(("描述相符", desc));
+        outcome(
+            json!({
+                "平台": platform,
+                "数据来源": "用户提供/默认样例",
+                "DSR总评": overall,
+                "各维度评分": {"描述相符": desc, "服务态度": svc, "物流服务": logi},
+                "健康状态": if overall >= 4.8 { "优秀" } else if overall >= 4.6 { "正常" } else { "需改善" },
+                "优先改善维度": lowest.0,
+                "改善骨架": ["定位低分订单与评价关键词", "建立问题分类", "制定客服/物流/描述修正动作", "按周复盘DSR变化"],
+                "deferred_dependencies": ["store_metrics", "content_engine", "fresh_benchmark"]
+            }),
+            "DSR提升方案骨架已返回",
+        )
+    }
+}
+
+fn default_faq_questions() -> Vec<String> {
+    vec![
+        "什么时候发货？".to_owned(),
+        "支持退货退款吗？怎么操作？".to_owned(),
+        "质量有保障吗？".to_owned(),
+        "有优惠活动吗？".to_owned(),
+        "怎么选尺码/规格？".to_owned(),
+        "包邮吗？运费多少？".to_owned(),
+        "可以开发票吗？".to_owned(),
+        "商品是正品吗？".to_owned(),
+    ]
 }
 
 pub fn service_nps_analyzer_spec() -> SkillSpec {

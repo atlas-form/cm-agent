@@ -42,33 +42,31 @@ RoleRoute
 下一阶段目标：
 
 ```text
-TaskGraph Runtime
-  -> Structured RoleWorkOutput
-  -> WorkerReport upgrade
-  -> Role-specific Prompts
+Role Planning
+  -> Role Prompt Boundaries
   -> Role-aware Evaluation
-  -> Role-aware Final Synthesis
+  -> Old Effect Alignment
+  -> Role Matrix Regression
 ```
 
-## Priority 1: Role Design + Role Contract
+## Priority 1: Role Completion + Old Effect Alignment
 
 详细计划见：
 
-- `ROLE_PHASE_3_ROLE_DESIGN_PLAN.md`
+- `role/ROLE_PHASE_4_ROLE_COMPLETION_PLAN.md`
 
-这是第三阶段主线。
+这是第四阶段主线。
 
 先做：
 
-1. 定义 `RoleWorkOutput`。
-2. 扩展 `WorkerReport`。
-3. 修改 worker 输出解析。
-4. 修改 role prompts 和 worker cognition prompt。
-5. 改 evaluator，加入 role-specific checks。
-6. 改 final synthesis，展示 role 贡献、建议、风险和缺口。
-7. 补结构化输出、上游证据、角色差异和质量检查测试。
+1. 稳定 `plan_task_graph` 的 role 选择边界。
+2. 复核 9 个 role prompt 的职责边界。
+3. 收敛 evaluator 误杀和漏检。
+4. 对照旧 Python 的 role 效果，不照搬旧 pipeline。
+5. 固化远程 Ollama 9 role matrix 回归。
+6. 补 planner / evaluator / matrix 相关测试。
 
-完成后，再进入 skill/tool/action 阶段。
+完成后，roles 层才算真正稳定；skill 工作由其他进程并行处理。
 
 ## Priority 2: Streaming Follow-up
 
@@ -95,7 +93,7 @@ TaskGraph Runtime
 - session restore。
 - 长任务后台状态查询。
 
-这些应在 role contract 稳定后再做，避免 manager 先承载过多未定行为。
+这些应在 roles 层稳定后再做，避免 manager 先承载过多未定行为。
 
 ## Priority 4: Naming Cleanup
 
