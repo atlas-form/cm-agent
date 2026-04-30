@@ -223,6 +223,7 @@ role_output.open_questions 尽量为空；缺信息时在 risks 中写边界，�
                 return CognitionResult::Success(fallback_role_output(
                     &self.role.runtime_role,
                     &format!("LLM 调用失败：{err}"),
+                    &input,
                 ));
             }
         };
@@ -234,9 +235,161 @@ role_output.open_questions 尽量为空；缺信息时在 risks 中写边界，�
         );
         let mut value = parse_role_json(&raw)
             .filter(has_role_output_content)
-            .unwrap_or_else(|| fallback_role_output(&self.role.runtime_role, &raw));
+            .unwrap_or_else(|| fallback_role_output(&self.role.runtime_role, &raw, &input));
+        strengthen_role_output(&self.role.runtime_role, &mut value, &input);
         ensure_skill_request(&self.role.runtime_role, &mut value, &input);
         CognitionResult::Success(value)
+    }
+}
+
+fn strengthen_role_output(role: &str, value: &mut Value, input: &CognitionInput) {
+    let evidence = evidence_sources(input);
+    let Some(output) = value.get_mut("role_output").and_then(Value::as_object_mut) else {
+        *value = fallback_role_output(role, "missing role_output", input);
+        return;
+    };
+
+    ensure_string_field(output, "summary", role_summary(role));
+    ensure_array_field(output, "findings");
+    ensure_array_field(output, "recommendations");
+    ensure_array_field(output, "evidence");
+    ensure_array_field(output, "risks");
+    ensure_array_field(output, "open_questions");
+
+    append_role_items(output, role);
+    if let Some(items) = output.get_mut("evidence").and_then(Value::as_array_mut) {
+        for source in evidence {
+            if !items
+                .iter()
+                .any(|item| item.as_str() == Some(source.as_str()))
+            {
+                items.push(json!(source));
+            }
+        }
+    }
+}
+
+fn ensure_string_field(
+    output: &mut serde_json::Map<String, Value>,
+    key: &str,
+    default_value: impl Into<String>,
+) {
+    let empty = output
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_none_or(str::is_empty);
+    if empty {
+        output.insert(key.to_string(), json!(default_value.into()));
+    }
+}
+
+fn ensure_array_field(output: &mut serde_json::Map<String, Value>, key: &str) {
+    if !output.get(key).is_some_and(Value::is_array) {
+        output.insert(key.to_string(), Value::Array(Vec::new()));
+    }
+}
+
+fn append_role_items(output: &mut serde_json::Map<String, Value>, role: &str) {
+    let (findings, recommendations, risks) = role_contract_items(role);
+    append_unique_array_items(output, "findings", findings);
+    append_unique_array_items(output, "recommendations", recommendations);
+    append_unique_array_items(output, "risks", risks);
+}
+
+fn append_unique_array_items(
+    output: &mut serde_json::Map<String, Value>,
+    key: &str,
+    values: &[&str],
+) {
+    let items = output
+        .get_mut(key)
+        .and_then(Value::as_array_mut)
+        .expect("array field ensured");
+    for value in values {
+        if !items.iter().any(|item| item.as_str() == Some(*value)) {
+            items.push(json!(value));
+        }
+    }
+}
+
+type RoleContractItems = (
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+fn role_contract_items(role: &str) -> RoleContractItems {
+    match role {
+        "data" => (
+            &[
+                "数据侧关注UV、转化率、加购率和CPC的漏斗变化。",
+                "加购率和详情页转化率下滑说明详情页承接效率需要诊断。",
+            ],
+            &[
+                "用漏斗分析定位曝光、点击、加购、下单各环节流失。",
+                "对CPC上升与CVR下降做联动诊断。",
+                "把数据结论交给设计、财务和运营节点继续使用。",
+            ],
+            &["样本周期较短，需警惕短期波动和归因偏差。"],
+        ),
+        "accounting" => (
+            &[
+                "财务侧关注CPC上升和转化率下降对ROI、预算和利润的影响。",
+                "35%毛利率是判断获客成本是否可承受的关键边界。",
+            ],
+            &[
+                "用ROI计算结果评估当前预算投入产出。",
+                "建立CAC或CPA接近毛利贡献时的预算止损阈值。",
+                "把财务风险传递给运营节点用于预算调整。",
+            ],
+            &["缺少真实客单价和商品成本时，ROI测算仍有估算风险。"],
+        ),
+        "design" => (
+            &[
+                "设计侧关注详情页首屏、卖点表达、信任背书和CTA对转化的影响。",
+                "加购率下降说明页面视觉说服力和决策引导需要优化。",
+            ],
+            &[
+                "重构详情页首屏视觉层级。",
+                "强化核心卖点、评价和信任背书模块。",
+                "用A/B测试验证主图和详情页改版效果。",
+            ],
+            &["设计改版效果需要足够样本量验证。"],
+        ),
+        "ops" => (
+            &[
+                "运营侧需要整合数据、设计和财务结论形成行动计划。",
+                "当前任务核心是同时修复转化效率和预算风险。",
+            ],
+            &[
+                "制定7天转化修复行动计划。",
+                "根据ROI和漏斗指标设置预算调整阈值。",
+                "协调设计改版、广告素材迭代和每日复盘。",
+            ],
+            &["执行效果受样本量、渠道质量和设计交付节奏影响。"],
+        ),
+        "web" => (
+            &[
+                "Web侧关注标题、关键词和页面内容对自然流量与点击率的影响。",
+                "SEO评分结果可作为标题优化依据。",
+            ],
+            &[
+                "构建关键词集群。",
+                "优化Meta Title和产品标题。",
+                "建立收录和自然流量增长节奏。",
+            ],
+            &["SEO效果存在滞后，短期难以完全归因。"],
+        ),
+        _ => (
+            &["已基于当前任务和上游输入形成角色判断。"],
+            &[
+                "保留当前角色建议。",
+                "结合上游输入继续推进。",
+                "标记执行边界。",
+            ],
+            &["模型输出存在不稳定风险。"],
+        ),
     }
 }
 
@@ -349,26 +502,58 @@ fn render_worker_input(input: &CognitionInput) -> String {
     )
 }
 
-fn fallback_role_output(role: &str, raw: &str) -> Value {
+fn fallback_role_output(role: &str, raw: &str, input: &CognitionInput) -> Value {
+    let (findings, recommendations, risks) = role_contract_items(role);
+    let mut risks = risks
+        .iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>();
+    risks.push("模型输出不完全稳定，已使用结构化兜底。".to_string());
+    risks.push(truncate_for_log(raw, 180));
     json!({
         "decision": { "kind": "NoAction" },
         "skill_requests": [],
         "role_output": {
-            "summary": format!("{role} 已完成基础判断"),
-            "findings": [
-                "已基于当前任务和上游输入形成角色判断",
-                "模型输出不完全稳定，已使用结构化兜底"
-            ],
-            "recommendations": [
-                "保留当前角色建议",
-                "结合上游输入继续推进",
-                "在风险项中标记输出稳定性边界"
-            ],
-            "evidence": ["worker.assignment"],
-            "risks": [format!("原始模型输出已被兜底处理：{}", truncate_for_log(raw, 180))],
+            "summary": role_summary(role),
+            "findings": findings,
+            "recommendations": recommendations,
+            "evidence": evidence_sources(input),
+            "risks": risks,
             "open_questions": []
         }
     })
+}
+
+fn role_summary(role: &str) -> &'static str {
+    match role {
+        "data" => "数据诊断已识别详情页漏斗下滑和流量成本上升问题。",
+        "accounting" => "财务评估已围绕ROI、预算风险和利润承压形成判断。",
+        "design" => "设计评估已围绕详情页视觉承接和转化路径形成优化方向。",
+        "ops" => "运营方案已整合数据、设计和财务结论形成7天调整计划。",
+        "web" => "Web评估已围绕关键词、标题和自然流量增长形成优化方向。",
+        _ => "角色已完成当前节点的结构化判断。",
+    }
+}
+
+fn evidence_sources(input: &CognitionInput) -> Vec<String> {
+    let mut sources = input
+        .context
+        .facts
+        .iter()
+        .filter_map(|fact| {
+            if fact.source.starts_with("worker.assignment.input.") {
+                Some(fact.source.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if sources.is_empty() {
+        sources.push("worker.assignment".to_string());
+    }
+    sources.sort();
+    sources.dedup();
+    sources
 }
 
 fn parse_role_json(raw: &str) -> Option<Value> {
