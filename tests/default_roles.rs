@@ -87,11 +87,12 @@ struct NoopWorkerCognition;
 
 #[async_trait]
 impl Cognition for NoopWorkerCognition {
-    async fn evaluate(&self, _input: CognitionInput) -> CognitionResult {
+    async fn evaluate(&self, input: CognitionInput) -> CognitionResult {
         CognitionResult::Success(json!({
             "decision": {
                 "kind": "NoAction"
-            }
+            },
+            "role_output": test_role_output(&input)
         }))
     }
 }
@@ -109,7 +110,8 @@ impl Cognition for CapturingWorkerCognition {
         CognitionResult::Success(json!({
             "decision": {
                 "kind": "NoAction"
-            }
+            },
+            "role_output": test_role_output(&input)
         }))
     }
 }
@@ -131,8 +133,64 @@ impl Cognition for CapturingWorkerSetCognition {
         CognitionResult::Success(json!({
             "decision": {
                 "kind": "NoAction"
-            }
+            },
+            "role_output": test_role_output(&input)
         }))
+    }
+}
+
+fn test_role_output(input: &CognitionInput) -> serde_json::Value {
+    let role = input
+        .context
+        .metadata
+        .get("role.runtime_role")
+        .map(String::as_str)
+        .unwrap_or("chat");
+    let mut evidence = vec!["原始任务".to_string()];
+    if input
+        .context
+        .metadata
+        .get("assignment.input_count")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+        > 0
+    {
+        evidence.push("worker.assignment.input.data".to_string());
+    }
+
+    match role {
+        "data" => json!({
+            "summary": "数据角色已完成漏斗指标和归因口径诊断。",
+            "findings": ["漏斗指标需要拆解", "归因口径需要统一"],
+            "recommendations": ["按渠道和页面阶段复核转化断点"],
+            "evidence": evidence,
+            "risks": ["口径不一致会导致误判"],
+            "open_questions": []
+        }),
+        "creative" => json!({
+            "summary": "创意角色已形成直播脚本文案方向。",
+            "findings": ["内容需要突出首段钩子"],
+            "recommendations": ["输出三版直播脚本开头和标题文案"],
+            "evidence": evidence,
+            "risks": ["不能编造产品功效或用户反馈"],
+            "open_questions": []
+        }),
+        "ops" => json!({
+            "summary": "运营角色已形成可执行运营调整方案。",
+            "findings": ["运营目标需要转化链路承接"],
+            "recommendations": ["P1 优化首屏卖点", "P2 调整投放人群", "P3 每日复盘转化"],
+            "evidence": evidence,
+            "risks": ["预算消耗需要止损线"],
+            "open_questions": []
+        }),
+        _ => json!({
+            "summary": "测试 worker 已完成当前角色节点。",
+            "findings": ["已基于当前任务形成判断"],
+            "recommendations": ["按角色边界推进下一步"],
+            "evidence": evidence,
+            "risks": ["需要确认上下文边界"],
+            "open_questions": []
+        }),
     }
 }
 

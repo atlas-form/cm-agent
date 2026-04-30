@@ -450,19 +450,22 @@ fn evaluate_report(
     if content.is_empty() {
         reasons.push("content is empty".to_string());
     }
-    if !report.open_questions.is_empty() {
+    if open_questions_are_blocking(report.role_output.as_ref(), &report.open_questions) {
         reasons.push("open questions remain".to_string());
     }
-    if let Some(role_output) = &report.role_output {
-        reasons.extend(evaluate_role_output(&report.role, role_output));
-        reasons.extend(evaluate_quality_contract(report, role_output));
-        if let Some(node) = node {
-            reasons.extend(evaluate_upstream_evidence(
-                node,
-                role_output,
-                upstream_reports,
-            ));
+    match &report.role_output {
+        Some(role_output) => {
+            reasons.extend(evaluate_role_output(&report.role, role_output));
+            reasons.extend(evaluate_quality_contract(report, role_output));
+            if let Some(node) = node {
+                reasons.extend(evaluate_upstream_evidence(
+                    node,
+                    role_output,
+                    upstream_reports,
+                ));
+            }
         }
+        None => reasons.push("structured role output is missing".to_string()),
     }
     let lower = content.to_lowercase();
     if contains_any(
@@ -537,7 +540,9 @@ fn evaluate_quality_contract(report: &WorkerReport, output: &RoleWorkOutput) -> 
         &[
             "不能回答",
             "无法回答",
-            "无法完成",
+            "无法完成任务",
+            "无法继续",
+            "无法推进",
             "我不能",
             "i cannot",
             "can't help",
@@ -549,6 +554,34 @@ fn evaluate_quality_contract(report: &WorkerReport, output: &RoleWorkOutput) -> 
     }
 
     reasons
+}
+
+fn open_questions_are_blocking(output: Option<&RoleWorkOutput>, open_questions: &[String]) -> bool {
+    if open_questions.is_empty() {
+        return false;
+    }
+    if open_questions.iter().any(|item| {
+        contains_any(
+            item,
+            &[
+                "无法继续",
+                "无法判断",
+                "无法完成任务",
+                "阻止",
+                "必须提供",
+                "必须补充",
+            ],
+        )
+    }) {
+        return true;
+    }
+
+    output
+        .map(|output| {
+            output.summary.trim().is_empty()
+                || (output.findings.is_empty() && output.recommendations.is_empty())
+        })
+        .unwrap_or(true)
 }
 
 fn evaluate_upstream_evidence(
@@ -596,7 +629,7 @@ fn evaluate_role_output(role: &str, output: &RoleWorkOutput) -> Vec<String> {
     if output.summary.trim().is_empty() {
         reasons.push("role output summary is empty".to_string());
     }
-    if !output.open_questions.is_empty() {
+    if open_questions_are_blocking(Some(output), &output.open_questions) {
         reasons.push("role output has open questions".to_string());
     }
     if output.summary.contains("已调用")
@@ -618,10 +651,9 @@ fn evaluate_role_output(role: &str, output: &RoleWorkOutput) -> Vec<String> {
                 reasons.push("data role should mark data or interpretation risks".to_string());
             }
         }
-        "ops"
-            if output.recommendations.len() < 3 => {
-                reasons.push("ops role should provide at least three recommendations".to_string());
-            }
+        "ops" if output.recommendations.len() < 3 => {
+            reasons.push("ops role should provide at least three recommendations".to_string());
+        }
         "design" => {
             if output.recommendations.is_empty() {
                 reasons
@@ -947,7 +979,7 @@ mod tests {
         let assignment = runtime.build_assignment(&node);
         runtime.mark_running(&assignment);
         let mut report = report_from_assignment(&assignment, "需要更多上下文");
-        report.open_questions = vec!["缺少业务指标口径".to_string()];
+        report.open_questions = vec!["必须补充业务指标口径后才能继续".to_string()];
 
         let outcome = runtime.apply_report(report);
 
@@ -956,6 +988,34 @@ mod tests {
             runtime.states.get(&node.id),
             Some(TaskNodeRuntimeState::Pending)
         ));
+    }
+
+    #[test]
+    fn evaluator_allows_non_blocking_open_questions_with_substantive_output() {
+        let graph = TaskGraph {
+            graph_id: TaskGraphId("graph-design-gaps".to_string()),
+            root_task: "做详情页设计建议".to_string(),
+            nodes: vec![node(
+                "design",
+                "design",
+                "体验设计",
+                "做详情页设计建议".to_string(),
+                Vec::new(),
+                2,
+            )],
+        };
+        let mut runtime = TaskGraphRuntime::new(graph);
+        let node = runtime.ready_nodes().remove(0);
+        let assignment = runtime.build_assignment(&node);
+        runtime.mark_running(&assignment);
+        let mut report = report_from_assignment(&assignment, "设计建议完整");
+        let role_output = report.role_output.as_mut().expect("role output");
+        role_output.open_questions = vec!["需要当前详情页截图以便进一步细化设计。".to_string()];
+        report.open_questions = role_output.open_questions.clone();
+
+        let outcome = runtime.apply_report(report);
+
+        assert!(matches!(outcome, EvaluationOutcome::Passed(_)));
     }
 
     #[test]
@@ -982,6 +1042,21 @@ mod tests {
             runtime.states.get(&node.id),
             Some(TaskNodeRuntimeState::Pending)
         ));
+    }
+
+    #[test]
+    fn evaluator_rejects_missing_structured_role_output() {
+        let graph = plan_task_graph(&TaskId("task-15".to_string()), "分析转化率下降", None);
+        let mut runtime = TaskGraphRuntime::new(graph);
+        let node = runtime.ready_nodes().remove(0);
+        let assignment = runtime.build_assignment(&node);
+        runtime.mark_running(&assignment);
+        let mut report = report_from_assignment(&assignment, "只有纯文本，不含结构化角色产物");
+        report.role_output = None;
+
+        let outcome = runtime.apply_report(report);
+
+        assert!(matches!(outcome, EvaluationOutcome::Rework { .. }));
     }
 
     #[test]
@@ -1267,6 +1342,35 @@ mod tests {
     }
 
     #[test]
+    fn evaluator_allows_risk_marked_missing_precision_without_refusal() {
+        let role_output = RoleWorkOutput {
+            summary: "预算风险需要先用 CPA、ROI 和毛利边界判断。".to_string(),
+            findings: vec!["CPC 上升叠加 CVR 下降会推高 CPA。".to_string()],
+            recommendations: vec!["先按客单价补齐盈亏平衡测算。".to_string()],
+            evidence: vec!["原始任务".to_string()],
+            risks: vec!["缺乏客单价数据，无法完成精确盈亏平衡点量化计算。".to_string()],
+            open_questions: Vec::new(),
+        };
+        let report = WorkerReport {
+            graph_id: TaskGraphId("graph-accounting-precision".to_string()),
+            node_id: TaskNodeId("accounting".to_string()),
+            task_id: TaskId("task-accounting-precision".to_string()),
+            worker_id: WorkerId("worker.accounting".to_string()),
+            role: "accounting".to_string(),
+            content: role_output.summary.clone(),
+            role_output: Some(role_output),
+            evidence: Vec::new(),
+            risks: Vec::new(),
+            open_questions: Vec::new(),
+            status: WorkerReportStatus::Completed,
+        };
+
+        let evaluation = evaluate_report(&report, None, &HashMap::new());
+
+        assert!(evaluation.passed, "{:?}", evaluation.reasons);
+    }
+
+    #[test]
     fn planner_can_make_ops_depend_on_design_and_accounting() {
         let graph = plan_task_graph(
             &TaskId("task-9".to_string()),
@@ -1298,11 +1402,82 @@ mod tests {
             worker_id: assignment.worker_id.clone(),
             role: assignment.role.clone(),
             content: content.to_string(),
-            role_output: None,
+            role_output: valid_role_output_for_role(&assignment.role, content),
             evidence: Vec::new(),
             risks: Vec::new(),
             open_questions: Vec::new(),
             status: WorkerReportStatus::Completed,
         }
+    }
+
+    fn valid_role_output_for_role(role: &str, content: &str) -> Option<RoleWorkOutput> {
+        if content.trim().is_empty() {
+            return None;
+        }
+
+        let summary = format!("测试角色产物：{}，已满足当前节点目标。", content.trim());
+        let output = match role {
+            "data" => RoleWorkOutput {
+                summary: summary.clone(),
+                findings: vec![
+                    "漏斗指标需要拆解".to_string(),
+                    "归因口径需要统一".to_string(),
+                ],
+                recommendations: vec!["按渠道和页面段落复核转化断点。".to_string()],
+                evidence: vec!["原始任务".to_string()],
+                risks: vec!["数据口径不一致会导致误判。".to_string()],
+                open_questions: Vec::new(),
+            },
+            "design" => RoleWorkOutput {
+                summary: summary.clone(),
+                findings: vec!["页面首屏承接需要优化".to_string()],
+                recommendations: vec!["调整详情页视觉层级和主图卖点。".to_string()],
+                evidence: vec!["worker.assignment.input.data".to_string()],
+                risks: vec!["缺少真实点击数据时需要小流量验证。".to_string()],
+                open_questions: Vec::new(),
+            },
+            "accounting" => RoleWorkOutput {
+                summary: summary.clone(),
+                findings: vec!["预算和成本需要绑定 ROI 判断。".to_string()],
+                recommendations: vec!["设置预算止损线。".to_string()],
+                evidence: vec!["worker.assignment.input.data".to_string()],
+                risks: vec!["现金流不足会放大投放风险。".to_string()],
+                open_questions: Vec::new(),
+            },
+            "ops" => RoleWorkOutput {
+                summary: summary.clone(),
+                findings: vec!["运营目标需要转化链路承接。".to_string()],
+                recommendations: vec![
+                    "P1 优化首屏卖点。".to_string(),
+                    "P2 调整投放人群。".to_string(),
+                    "P3 每日复盘转化。".to_string(),
+                ],
+                evidence: vec![
+                    "worker.assignment.input.design".to_string(),
+                    "worker.assignment.input.accounting".to_string(),
+                    "worker.assignment.input.data".to_string(),
+                ],
+                risks: vec!["预算消耗需设置止损线。".to_string()],
+                open_questions: Vec::new(),
+            },
+            "chat" => RoleWorkOutput {
+                summary: summary.clone(),
+                findings: vec!["已基于当前任务直接回答。".to_string()],
+                recommendations: Vec::new(),
+                evidence: vec!["原始任务".to_string()],
+                risks: Vec::new(),
+                open_questions: Vec::new(),
+            },
+            _ => RoleWorkOutput {
+                summary,
+                findings: vec!["已形成角色判断。".to_string()],
+                recommendations: vec!["按角色边界推进下一步。".to_string()],
+                evidence: vec!["原始任务".to_string()],
+                risks: vec!["需要持续确认边界。".to_string()],
+                open_questions: Vec::new(),
+            },
+        };
+
+        Some(output)
     }
 }
